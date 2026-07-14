@@ -15,6 +15,7 @@ export default function Clock() {
   const [reviewing, setReviewing] = useState(false)
   const [manualOut, setManualOut] = useState('')
   const [now, setNow] = useState(Date.now())
+  const [error, setError] = useState('')
 
   const refresh = useCallback(async () => {
     const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0)
@@ -42,12 +43,15 @@ export default function Clock() {
   const longRunning = active && elapsed > TWELVE_HOURS
 
   const clockIn = async () => {
-    const s = await post('/clock-in', { client_id: clientId })
-    setActive({ ...s, ...clients.find(c => c.id === clientId) && {
-      client_name: clients.find(c => c.id === clientId).name,
-      color_accent: clients.find(c => c.id === clientId).color_accent,
-    } })
-    setNow(Date.now())
+    setError('')
+    try {
+      const s = await post('/clock-in', { client_id: clientId })
+      const c = clients.find(x => x.id === clientId)
+      setActive({ ...s, client_name: c?.name, color_accent: c?.color_accent })
+      setNow(Date.now())
+    } catch (e) {
+      setError(e.message)
+    }
   }
 
   const onSaved = () => {
@@ -89,6 +93,7 @@ export default function Clock() {
               <button className="clock-btn" disabled={!clientId} onClick={clockIn}>
                 Clock In
               </button>
+              {error && <div className="field-error" style={{ fontSize: 14, maxWidth: 420 }}>{error}</div>}
             </>
           )}
         </div>
@@ -159,10 +164,19 @@ function AddClientModal({ onSave, onClose, usedColors }) {
   const [name, setName] = useState('')
   const [color, setColor] = useState(firstFree)
   const [target, setTarget] = useState('')
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
 
-  const save = () => {
-    if (!name.trim()) return
-    onSave({ name, color_accent: color, weekly_hours_target: Number(target) || 0 })
+  const save = async () => {
+    if (!name.trim() || saving) return
+    setSaving(true)
+    setError('')
+    try {
+      await onSave({ name, color_accent: color, weekly_hours_target: Number(target) || 0 })
+    } catch (e) {
+      setError(e.message)
+      setSaving(false)
+    }
   }
 
   return (
@@ -191,9 +205,12 @@ function AddClientModal({ onSave, onClose, usedColors }) {
             onKeyDown={e => { if (e.key === 'Enter') save() }} />
         </div>
       </div>
+      {error && <div className="field-error" style={{ marginTop: 16, fontSize: 13 }}>{error}</div>}
       <div className="modal-actions">
         <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-        <button className="btn" onClick={save} disabled={!name.trim()}>Add client</button>
+        <button className="btn" onClick={save} disabled={!name.trim() || saving}>
+          {saving ? 'Adding…' : 'Add client'}
+        </button>
       </div>
     </Modal>
   )

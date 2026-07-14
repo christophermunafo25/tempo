@@ -1,0 +1,160 @@
+/* ==========================================================================
+   TEMPO design tokens — CJPortfolio / SocialPaint design system
+   Light theme is the default; [data-theme="dark"] flips surfaces to
+   Midnight Ink / Obsidian Depth. Solar orange is reserved for interactive
+   moments only (CTAs, focus, active states, the timer's pulse).
+   ========================================================================== */
+
+@import url("https://fonts.googleapis.com/css2?family=Fragment+Mono:ital@0;1&family=Inter:wght@300;400;500&display=swap");
+
+@font-face {
+  font-family: "Menseal";
+  src: url("/fonts/Menseal-Black.otf") format("opentype");
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Menseal";
+  src: url("/fonts/Menseal-SemiBold.otf") format("opentype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Stack Sans";
+  src: url("/fonts/StackSansText-Variable.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* ── Brand constants (theme-independent) ─────────────────────────────── */
+  --ink:      #231f23;
+  --obsidian: #1a171a;
+  --paper:    #f7f6f5;
+  --linen:    #faf8f5;
+  --lift:     #ffffff;
+  --solar:    #FF3F00;
+
+  /* ── Typography ───────────────────────────────────────────────────────── */
+  --font-display: "Menseal", "Archivo Black", sans-serif;
+  --font-body: "Stack Sans", "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "Fragment Mono", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --label-size: 12px;
+  --label-size-sm: 11px;
+  --label-tracking: 0.75px;
+
+  /* ── Radii (DS scale) ─────────────────────────────────────────────────── */
+  --radius-card: 16px;
+  --radius-icon: 12px;
+  --radius-input: 10px;
+  --radius-button: 8px;
+  --radius-pill: 999px;
+
+  /* ── Spacing (8px grid) ───────────────────────────────────────────────── */
+  --space-1: 4px;  --space-2: 8px;   --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px;  --space-8: 32px; --space-10: 40px;
+  --space-12: 48px; --space-16: 64px;
+
+  /* ── Motion ───────────────────────────────────────────────────────────── */
+  --ease-brand: cubic-bezier(.25,.1,.25,1);
+  --ease-entrance: cubic-bezier(.16,1,.3,1);
+  --dur-fast: 150ms;
+  --dur-base: 300ms;
+
+  /* ── Curated client accent palette (muted, distinct, works both themes) ─ */
+  --client-1: #9C8AD6;  /* orchid */
+  --client-2: #6B93C4;  /* slate blue */
+  --client-3: #D9A13B;  /* warm amber */
+  --client-4: #8FAE7E;  /* sage */
+  --client-5: #D98873;  /* muted coral */
+  --client-6: #5FA8A0;  /* teal */
+  --client-7: #C77D9E;  /* rose */
+  --client-8: #A5A06B;  /* olive */
+}
+
+/* ── Light theme (default) ─────────────────────────────────────────────── */
+:root {
+  color-scheme: light;
+
+  --bg: var(--linen);
+  --surface: var(--lift);          /* elevated cards, inputs */
+  --surface-2: var(--paper);       /* secondary panels */
+  --surface-3: #ececec;            /* wells, tracks */
+
+  --text-1: #231f23;
+  --text-2: rgba(35,31,35,0.64);
+  --text-3: rgba(35,31,35,0.48);
+  --text-4: rgba(35,31,35,0.32);
+
+  --hairline: rgba(35,31,35,0.08);
+  --hairline-strong: rgba(35,31,35,0.24);
+
+  --accent: var(--solar);
+  --accent-soft: rgba(255,63,0,0.08);
+  --on-accent: #ffffff;
+
+  --btn-bg: var(--ink);            /* DS primary button: ink on light */
+  --btn-fg: var(--paper);
+
+  --shadow-e1: 0 1px 2px rgba(35,31,35,0.04), 0 1px 1px rgba(35,31,35,0.03);
+  --shadow-e2: 0 4px 16px rgba(35,31,35,0.06);
+  --shadow-e3: 0 8px 32px rgba(35,31,35,0.08);
+  --shadow-e4: 0 16px 48px rgba(35,31,35,0.12);
+
+  --focus-ring: 0 0 0 3px rgba(255,63,0,0.32);
+
+  /* Semantic status tints — muted, outlined pills */
+  --st-neutral: rgba(35,31,35,0.48);
+  --st-blue:   #4a6fa5;
+  --st-amber:  #a5722a;
+  --st-violet: #7b5fa8;
+  --st-green:  #4a7c59;
+
+  --scrim: rgba(35,31,35,0.4);
+  --chart-grid: rgba(35,31,35,0.08);
+}
+
+/* ── Dark theme ────────────────────────────────────────────────────────── */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: var(--obsidian);
+  --surface: var(--ink);
+  --surface-2: #2a252b;
+  --surface-3: #332d33;
+
+  --text-1: #f7f6f5;
+  --text-2: rgba(247,246,245,0.64);
+  --text-3: rgba(247,246,245,0.48);
+  --text-4: rgba(247,246,245,0.32);
+
+  --hairline: rgba(247,246,245,0.08);
+  --hairline-strong: rgba(247,246,245,0.24);
+
+  --accent: #ff4d12;
+  --accent-soft: rgba(255,77,18,0.12);
+  --on-accent: #ffffff;
+
+  --btn-bg: var(--paper);          /* DS inverted button on dark */
+  --btn-fg: var(--ink);
+
+  --shadow-e1: 0 1px 2px rgba(0,0,0,0.2);
+  --shadow-e2: 0 4px 16px rgba(0,0,0,0.28);
+  --shadow-e3: 0 8px 32px rgba(0,0,0,0.34);
+  --shadow-e4: 0 16px 48px rgba(0,0,0,0.44);
+
+  --focus-ring: 0 0 0 3px rgba(255,131,0,0.45); /* amber ring on dark, per DS */
+
+  --st-neutral: rgba(247,246,245,0.48);
+  --st-blue:   #8fb0d9;
+  --st-amber:  #d9b26b;
+  --st-violet: #b39fd9;
+  --st-green:  #8fbf9f;
+
+  --scrim: rgba(0,0,0,0.55);
+  --chart-grid: rgba(247,246,245,0.08);
+}

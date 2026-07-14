@@ -385,6 +385,16 @@ app.get('/api/archive', (req, res) => {
   })))
 })
 
+/* ── Static app (production: `npm start` serves the built UI + API) ──── */
+
+const DIST = path.join(__dirname, '..', 'dist')
+if (fs.existsSync(DIST)) {
+  app.use(express.static(DIST))
+  app.get(/^\/(?!api\/).*/, (req, res) => {
+    res.sendFile(path.join(DIST, 'index.html'))
+  })
+}
+
 /* ── Errors ──────────────────────────────────────────────────────────── */
 
 app.use((err, req, res, next) => {

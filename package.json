@@ -5,6 +5,7 @@
   "description": "Contract time tracking + project intelligence",
   "type": "module",
   "scripts": {
+    "start": "npm run build && node server/index.js",
     "dev": "concurrently -n api,web -c auto \"node --watch server/index.js\" \"vite\"",
     "server": "node server/index.js",
     "client": "vite",

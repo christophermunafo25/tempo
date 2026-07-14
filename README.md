@@ -10,9 +10,17 @@ invoicing — nothing is stubbed, deletes are soft, history is never overwritten
 
 ## Run
 
+TEMPO is local-first by design — it runs on your machine and nowhere else.
+
 ```bash
 npm install
-npm run dev        # starts API (localhost:3001) + client (localhost:5173)
+npm start          # daily driver: builds the app, serves everything at localhost:3001
+```
+
+For working on the code, use dev mode instead (hot reload, two ports):
+
+```bash
+npm run dev        # API on localhost:3001 + client on localhost:5173
 ```
 
 ## Back up

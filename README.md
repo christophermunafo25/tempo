@@ -8,9 +8,37 @@ measured against contracted hours.
 Local-first: all data lives in a SQLite file on disk. This data drives client
 invoicing — nothing is stubbed, deletes are soft, history is never overwritten.
 
-## Run
+## Deploy on Vercel
 
-TEMPO is local-first by design — it runs on your machine and nowhere else.
+The front end deploys as a static Vite build; the API runs as a serverless
+function (`api/index.js`) wrapping the same Express app used locally. Vercel
+has no persistent disk, so the deployed API needs a hosted database —
+[Turso](https://turso.tech) (hosted SQLite, free tier) keeps the schema and
+queries identical.
+
+One-time setup:
+
+```bash
+brew install tursodatabase/tap/turso
+turso auth login                  # GitHub sign-in
+turso db create tempo
+turso db show tempo --url         # → TURSO_DATABASE_URL
+turso db tokens create tempo      # → TURSO_AUTH_TOKEN
+```
+
+Add both values in Vercel → Project → Settings → Environment Variables, then
+redeploy. Until they're set, `/api/*` returns a clear 503 explaining this.
+
+Optional: copy local data up with
+`sqlite3 data/tempo.db .dump | turso db shell tempo`.
+
+Since this holds billing data, enable **Settings → Deployment Protection →
+Vercel Authentication** so only you can open the deployed app.
+
+## Run locally
+
+The same code runs fully local (SQLite file, no cloud) when no
+`TURSO_DATABASE_URL` is set.
 
 ```bash
 npm install

@@ -20,6 +20,7 @@ const blankEntry = () => ({
 })
 
 export default function ClockOutPanel({ session, initialOut, onSaved, onCancel }) {
+  const [inn, setInn] = useState(toLocalInput(session.clock_in))
   const [out, setOut] = useState(toLocalInput(initialOut))
   const [projects, setProjects] = useState([])
   const [entries, setEntries] = useState([])
@@ -57,9 +58,9 @@ export default function ClockOutPanel({ session, initialOut, onSaved, onCancel }
   }, [session.client_id])
 
   const durationMin = useMemo(() => {
-    const ms = fromLocalInput(out) - new Date(session.clock_in)
+    const ms = fromLocalInput(out) - fromLocalInput(inn)
     return Math.max(0, ms / 60000)
-  }, [out, session.clock_in])
+  }, [out, inn])
 
   const update = (key, patchObj) =>
     setEntries(es => es.map(e => e.key === key ? { ...e, ...patchObj } : e))
@@ -117,6 +118,7 @@ export default function ClockOutPanel({ session, initialOut, onSaved, onCancel }
     setSaving(true)
     try {
       await post(`/sessions/${session.id}/clock-out`, {
+        clock_in: fromLocalInput(inn).toISOString(),
         clock_out: fromLocalInput(out).toISOString(),
         entries: payload,
       })
@@ -143,10 +145,16 @@ export default function ClockOutPanel({ session, initialOut, onSaved, onCancel }
           <div className="meta">
             <span className="panel-duration">{fmtDuration(durationMin)}</span>
             <div className="field">
+              <span className="label">Clock in</span>
+              <input type="datetime-local" className="input" style={{ width: 'auto' }}
+                value={inn}
+                onChange={e => setInn(e.target.value)} />
+            </div>
+            <div className="field">
               <span className="label">Clock out</span>
               <input type="datetime-local" className="input" style={{ width: 'auto' }}
                 value={out}
-                min={toLocalInput(session.clock_in)}
+                min={inn}
                 onChange={e => setOut(e.target.value)} />
             </div>
           </div>

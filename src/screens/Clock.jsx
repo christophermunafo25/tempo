@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { get, post } from '../api.js'
+import { get, post, patch } from '../api.js'
 import { CLIENT_COLORS, clockParts, fmtDuration, fmtTime, toLocalInput, fromLocalInput } from '../time.js'
 import { Dropdown, Modal, ClientDot, EmptyState } from '../components/ui.jsx'
+import EditSessionModal from '../components/EditSessionModal.jsx'
 import ClockOutPanel from './ClockOutPanel.jsx'
 
 const TWELVE_HOURS = 12 * 3600 * 1000
@@ -16,6 +17,9 @@ export default function Clock() {
   const [manualOut, setManualOut] = useState('')
   const [now, setNow] = useState(Date.now())
   const [error, setError] = useState('')
+  const [editingStart, setEditingStart] = useState(false)
+  const [startDraft, setStartDraft] = useState('')
+  const [editSession, setEditSession] = useState(null)
 
   const refresh = useCallback(async () => {
     const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0)
@@ -49,6 +53,19 @@ export default function Clock() {
       const c = clients.find(x => x.id === clientId)
       setActive({ ...s, client_name: c?.name, color_accent: c?.color_accent })
       setNow(Date.now())
+    } catch (e) {
+      setError(e.message)
+    }
+  }
+
+  const saveStart = async () => {
+    setError('')
+    try {
+      const s = await patch(`/sessions/${active.id}`, {
+        clock_in: fromLocalInput(startDraft).toISOString(),
+      })
+      setActive(a => ({ ...a, clock_in: s.clock_in }))
+      setEditingStart(false)
     } catch (e) {
       setError(e.message)
     }
@@ -102,8 +119,29 @@ export default function Clock() {
           <div className="timer-client">
             <ClientDot color={active.color_accent} />
             {active.client_name}
-            <span style={{ color: 'var(--text-4)' }}>· since {fmtTime(active.clock_in)}</span>
+            {editingStart ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <input type="datetime-local" className="input" style={{ width: 'auto', padding: '4px 8px' }}
+                  value={startDraft} max={toLocalInput(new Date())} autoFocus
+                  onChange={e => setStartDraft(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') saveStart()
+                    if (e.key === 'Escape') setEditingStart(false)
+                  }} />
+                <button className="btn btn-sm" onClick={saveStart}>Save</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => setEditingStart(false)}>Cancel</button>
+              </span>
+            ) : (
+              <>
+                <span style={{ color: 'var(--text-4)' }}>· since {fmtTime(active.clock_in)}</span>
+                <button className="st-ctl" style={{ textTransform: 'none', letterSpacing: 0 }}
+                  onClick={() => { setStartDraft(toLocalInput(active.clock_in)); setEditingStart(true); setError('') }}>
+                  edit
+                </button>
+              </>
+            )}
           </div>
+          {error && <div className="field-error" style={{ fontSize: 13 }}>{error}</div>}
           <div className="timer" aria-live="off">
             {hh}<span className="colon">:</span>{mm}<span className="colon">:</span>{ss}
           </div>
@@ -141,11 +179,22 @@ export default function Clock() {
             </div>
             <span className="mono">{fmtDuration(s.duration_minutes)}</span>
             <span className="mono">{fmtTime(s.clock_in)} – {fmtTime(s.clock_out)}</span>
+            <button className="st-ctl" style={{ textTransform: 'none', letterSpacing: 0 }}
+              aria-label={`Edit ${s.client_name} session times`}
+              onClick={() => setEditSession(s)}>
+              edit
+            </button>
           </div>
         ))}
       </div>
 
       {addOpen && <AddClientModal onSave={addClient} onClose={() => setAddOpen(false)} usedColors={clients.map(c => c.color_accent)} />}
+
+      {editSession && (
+        <EditSessionModal session={editSession}
+          onSaved={() => { setEditSession(null); refresh() }}
+          onClose={() => setEditSession(null)} />
+      )}
 
       {reviewing && active && (
         <ClockOutPanel

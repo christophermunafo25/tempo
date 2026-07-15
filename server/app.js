@@ -227,13 +227,40 @@ app.get('/api/prefill', h(async (req, res) => {
   })))
 }))
 
+// Adjust a session's times after the fact (forgot to clock in/out).
+app.patch('/api/sessions/:id', h(async (req, res) => {
+  const session = await q1(null, 'SELECT * FROM sessions WHERE id = ?', [req.params.id])
+  if (!session) throw httpError(404, 'session not found')
+  const inn = req.body.clock_in ? new Date(req.body.clock_in) : new Date(session.clock_in)
+  if (isNaN(inn.getTime())) throw httpError(400, 'clock_in is not a valid time')
+  let out = session.clock_out ? new Date(session.clock_out) : null
+  if (req.body.clock_out) {
+    out = new Date(req.body.clock_out)
+    if (isNaN(out.getTime())) throw httpError(400, 'clock_out is not a valid time')
+  }
+  if (out) {
+    if (out <= inn) throw httpError(400, 'clock_out must be after clock_in')
+  } else if (inn > new Date()) {
+    throw httpError(400, 'clock_in can’t be in the future')
+  }
+  const duration = out ? Math.round(((out - inn) / 60000) * 100) / 100 : null
+  const updated = await q1(null,
+    'UPDATE sessions SET clock_in = ?, clock_out = ?, duration_minutes = ? WHERE id = ? RETURNING *',
+    [inn.toISOString(), out ? out.toISOString() : null, duration, session.id])
+  res.json(updated)
+}))
+
 app.post('/api/sessions/:id/clock-out', h(async (req, res) => {
   const session = await q1(null, 'SELECT * FROM sessions WHERE id = ?', [req.params.id])
   if (!session) throw httpError(404, 'session not found')
   if (session.clock_out) throw httpError(409, 'session is already clocked out')
-  const { clock_out, entries = [] } = req.body
+  const { clock_in, clock_out, entries = [] } = req.body
   let out = clock_out ? new Date(clock_out) : new Date()
-  const inn = new Date(session.clock_in)
+  let inn = new Date(session.clock_in)
+  if (clock_in) {
+    inn = new Date(clock_in)
+    if (isNaN(inn.getTime())) throw httpError(400, 'clock_in is not a valid time')
+  }
   if (isNaN(out.getTime())) throw httpError(400, 'clock_out is not a valid time')
   if (out <= inn) {
     // Editable clock-out has minute precision; a same-minute clock-out can
@@ -244,8 +271,8 @@ app.post('/api/sessions/:id/clock-out', h(async (req, res) => {
 
   await withTx(async (tx) => {
     const duration = Math.round(((out - inn) / 60000) * 100) / 100
-    await q(tx, 'UPDATE sessions SET clock_out = ?, duration_minutes = ? WHERE id = ?',
-      [out.toISOString(), duration, session.id])
+    await q(tx, 'UPDATE sessions SET clock_in = ?, clock_out = ?, duration_minutes = ? WHERE id = ?',
+      [inn.toISOString(), out.toISOString(), duration, session.id])
     for (const entry of entries) {
       const project = await q1(tx, 'SELECT * FROM projects WHERE id = ?', [entry.project_id])
       if (!project) throw httpError(400, `project ${entry.project_id} not found`)

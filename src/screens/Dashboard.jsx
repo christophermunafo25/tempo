@@ -9,6 +9,7 @@ import {
   weekRange, addDays, localDayKey, fmtHours, fmtDuration, fmtTime, fmtDate,
 } from '../time.js'
 import { ClientFilter, WeekStepper, ClientDot, StatusPill, EmptyState } from '../components/ui.jsx'
+import EditSessionModal from '../components/EditSessionModal.jsx'
 
 function useThemeColors() {
   const [theme, setTheme] = useState(document.documentElement.dataset.theme || 'light')
@@ -54,6 +55,8 @@ export default function Dashboard() {
   const [offset, setOffset] = useState(0)
   const [sessions, setSessions] = useState([])
   const [archive, setArchive] = useState([])
+  const [editSession, setEditSession] = useState(null)
+  const [refreshKey, setRefreshKey] = useState(0)
   const colors = useThemeColors()
 
   const range = useMemo(() => weekRange(offset), [offset])
@@ -67,7 +70,7 @@ export default function Dashboard() {
       : `/sessions?${q.slice(1)}`
     get(url).then(setSessions)
     get(`/archive${filter ? `?client_id=${filter}` : ''}`).then(setArchive)
-  }, [view, offset, filter, range])
+  }, [view, offset, filter, range, refreshKey])
 
   /* ── Week stats ─────────────────────────────────────────────────────── */
   const totalMin = sessions.reduce((a, s) => a + s.duration_minutes, 0)
@@ -192,6 +195,11 @@ export default function Dashboard() {
                       <span className="mono">{fmtDate(s.clock_in)} · {fmtTime(s.clock_in)} – {fmtTime(s.clock_out)}</span>
                       {s.entries.length === 0 && <span className="pill amber">Untagged time</span>}
                       <span className="wl-dur">{fmtDuration(s.duration_minutes)}</span>
+                      <button className="st-ctl" style={{ textTransform: 'none', letterSpacing: 0 }}
+                        aria-label={`Edit ${s.client_name} session times`}
+                        onClick={() => setEditSession(s)}>
+                        edit
+                      </button>
                     </div>
                     {s.entries.map(e => (
                       <div className="wl-entry" key={e.id}>
@@ -257,6 +265,12 @@ export default function Dashboard() {
             ) : archive.map(p => <ArchiveItem key={p.id} project={p} />)}
           </div>
         </>
+      )}
+
+      {editSession && (
+        <EditSessionModal session={editSession}
+          onSaved={() => { setEditSession(null); setRefreshKey(k => k + 1) }}
+          onClose={() => setEditSession(null)} />
       )}
     </div>
   )

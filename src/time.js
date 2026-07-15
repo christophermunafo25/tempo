@@ -71,6 +71,30 @@ export function clockParts(ms) {
   return [String(h).padStart(2, '0'), String(m).padStart(2, '0'), String(s).padStart(2, '0')]
 }
 
+/* Tolerant time-of-day parser for typed input.
+   Accepts "2:30 PM", "2:30pm", "14:30", "230pm", "1430", "9", "9 am"… */
+export function parseTimeText(text) {
+  const t = String(text).trim().toLowerCase().replace(/\./g, '')
+  const m = t.match(/^(\d{1,2})(?::?([0-5]\d))?\s*(am|pm|a|p)?$/)
+  if (!m) return null
+  let h = parseInt(m[1], 10)
+  const min = m[2] ? parseInt(m[2], 10) : 0
+  const ap = m[3]
+  if (ap) {
+    if (h < 1 || h > 12) return null
+    if (ap.startsWith('p') && h !== 12) h += 12
+    if (ap.startsWith('a') && h === 12) h = 0
+  } else if (h > 23) return null
+  return { h, m: min }
+}
+
+/* Same calendar day as `date`, with the given time of day. */
+export function withTimeOf(date, h, m) {
+  const d = new Date(date)
+  d.setHours(h, m, 0, 0)
+  return d
+}
+
 /* datetime-local <-> Date */
 export function toLocalInput(date) {
   const d = new Date(date)

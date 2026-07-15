@@ -829,6 +829,18 @@ a { color: inherit; text-decoration: none; }
 .ts-bar .track { height: 6px; }
 .ts-over { font-family: var(--font-mono); font-size: 11px; color: var(--st-amber); white-space: nowrap; }
 
+.timefield { display: inline-flex; align-items: center; gap: var(--space-2); }
+.timefield .tf-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.timefield .tf-date .mono { font-size: 12px; }
+.timefield .tf-date .st-ctl { font-size: 14px; padding: 0 4px; }
+
 .exp-row {
   display: grid;
   grid-template-columns: minmax(160px, 2fr) 110px minmax(130px, 1fr) minmax(110px, 1fr) minmax(120px, 1fr);

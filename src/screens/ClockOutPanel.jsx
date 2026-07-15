@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { get, post } from '../api.js'
-import { STATUSES, fmtDuration, toLocalInput, fromLocalInput } from '../time.js'
+import { STATUSES, fmtDuration } from '../time.js'
 import { Dropdown, ClientDot } from '../components/ui.jsx'
+import TimeField from '../components/TimeField.jsx'
 import { SubtaskEditor, LinkEditor } from '../components/ProjectBits.jsx'
 
 let entryKey = 0
@@ -20,8 +21,9 @@ const blankEntry = () => ({
 })
 
 export default function ClockOutPanel({ session, initialOut, onSaved, onCancel }) {
-  const [inn, setInn] = useState(toLocalInput(session.clock_in))
-  const [out, setOut] = useState(toLocalInput(initialOut))
+  const [inn, setInn] = useState(new Date(session.clock_in))
+  const [out, setOut] = useState(new Date(initialOut))
+  const [timesOk, setTimesOk] = useState({ inn: true, out: true })
   const [projects, setProjects] = useState([])
   const [entries, setEntries] = useState([])
   const [loaded, setLoaded] = useState(false)
@@ -57,10 +59,7 @@ export default function ClockOutPanel({ session, initialOut, onSaved, onCancel }
     })
   }, [session.client_id])
 
-  const durationMin = useMemo(() => {
-    const ms = fromLocalInput(out) - fromLocalInput(inn)
-    return Math.max(0, ms / 60000)
-  }, [out, inn])
+  const durationMin = useMemo(() => Math.max(0, (out - inn) / 60000), [out, inn])
 
   const update = (key, patchObj) =>
     setEntries(es => es.map(e => e.key === key ? { ...e, ...patchObj } : e))
@@ -97,6 +96,14 @@ export default function ClockOutPanel({ session, initialOut, onSaved, onCancel }
 
   const save = async () => {
     setError('')
+    if (!timesOk.inn || !timesOk.out) {
+      setError('Check the highlighted time — type it like 2:30 PM or 14:30.')
+      return
+    }
+    if (out <= inn) {
+      setError('Clock-out must be after clock-in.')
+      return
+    }
     const payload = []
     for (const e of entries) {
       if (!e.projectId) continue
@@ -118,8 +125,8 @@ export default function ClockOutPanel({ session, initialOut, onSaved, onCancel }
     setSaving(true)
     try {
       await post(`/sessions/${session.id}/clock-out`, {
-        clock_in: fromLocalInput(inn).toISOString(),
-        clock_out: fromLocalInput(out).toISOString(),
+        clock_in: inn.toISOString(),
+        clock_out: out.toISOString(),
         entries: payload,
       })
       onSaved()
@@ -146,16 +153,13 @@ export default function ClockOutPanel({ session, initialOut, onSaved, onCancel }
             <span className="panel-duration">{fmtDuration(durationMin)}</span>
             <div className="field">
               <span className="label">Clock in</span>
-              <input type="datetime-local" className="input" style={{ width: 'auto' }}
-                value={inn}
-                onChange={e => setInn(e.target.value)} />
+              <TimeField value={inn} onChange={setInn}
+                onValidity={(ok) => setTimesOk(t => ({ ...t, inn: ok }))} />
             </div>
             <div className="field">
               <span className="label">Clock out</span>
-              <input type="datetime-local" className="input" style={{ width: 'auto' }}
-                value={out}
-                min={inn}
-                onChange={e => setOut(e.target.value)} />
+              <TimeField value={out} onChange={setOut}
+                onValidity={(ok) => setTimesOk(t => ({ ...t, out: ok }))} />
             </div>
           </div>
         </div>

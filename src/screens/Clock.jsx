@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { get, post, patch } from '../api.js'
-import { CLIENT_COLORS, clockParts, fmtDuration, fmtTime, toLocalInput, fromLocalInput } from '../time.js'
+import { CLIENT_COLORS, clockParts, fmtDuration, fmtTime } from '../time.js'
 import { Dropdown, Modal, ClientDot, EmptyState } from '../components/ui.jsx'
 import EditSessionModal from '../components/EditSessionModal.jsx'
+import TimeField from '../components/TimeField.jsx'
 import ClockOutPanel from './ClockOutPanel.jsx'
 
 const TWELVE_HOURS = 12 * 3600 * 1000
@@ -14,11 +15,12 @@ export default function Clock() {
   const [clientId, setClientId] = useState(null)
   const [addOpen, setAddOpen] = useState(false)
   const [reviewing, setReviewing] = useState(false)
-  const [manualOut, setManualOut] = useState('')
+  const [manualOut, setManualOut] = useState(null)        // Date from the 12h banner
   const [now, setNow] = useState(Date.now())
   const [error, setError] = useState('')
   const [editingStart, setEditingStart] = useState(false)
-  const [startDraft, setStartDraft] = useState('')
+  const [startDraft, setStartDraft] = useState(null)      // Date while editing
+  const [startOk, setStartOk] = useState(true)
   const [editSession, setEditSession] = useState(null)
 
   const refresh = useCallback(async () => {
@@ -59,10 +61,11 @@ export default function Clock() {
   }
 
   const saveStart = async () => {
+    if (!startOk) return
     setError('')
     try {
       const s = await patch(`/sessions/${active.id}`, {
-        clock_in: fromLocalInput(startDraft).toISOString(),
+        clock_in: startDraft.toISOString(),
       })
       setActive(a => ({ ...a, clock_in: s.clock_in }))
       setEditingStart(false)
@@ -74,7 +77,7 @@ export default function Clock() {
   const onSaved = () => {
     setReviewing(false)
     setActive(null)
-    setManualOut('')
+    setManualOut(null)
     refresh()
   }
 
@@ -121,21 +124,16 @@ export default function Clock() {
             {active.client_name}
             {editingStart ? (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                <input type="datetime-local" className="input" style={{ width: 'auto', padding: '4px 8px' }}
-                  value={startDraft} max={toLocalInput(new Date())} autoFocus
-                  onChange={e => setStartDraft(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') saveStart()
-                    if (e.key === 'Escape') setEditingStart(false)
-                  }} />
-                <button className="btn btn-sm" onClick={saveStart}>Save</button>
+                <TimeField value={startDraft} onChange={setStartDraft}
+                  onValidity={setStartOk} onEnter={saveStart} />
+                <button className="btn btn-sm" onClick={saveStart} disabled={!startOk}>Save</button>
                 <button className="btn btn-ghost btn-sm" onClick={() => setEditingStart(false)}>Cancel</button>
               </span>
             ) : (
               <>
                 <span style={{ color: 'var(--text-4)' }}>· since {fmtTime(active.clock_in)}</span>
                 <button className="st-ctl" style={{ textTransform: 'none', letterSpacing: 0 }}
-                  onClick={() => { setStartDraft(toLocalInput(active.clock_in)); setEditingStart(true); setError('') }}>
+                  onClick={() => { setStartDraft(new Date(active.clock_in)); setStartOk(true); setEditingStart(true); setError('') }}>
                   edit
                 </button>
               </>
@@ -148,15 +146,7 @@ export default function Clock() {
           {longRunning && (
             <div className="longrun-banner">
               <span>This session has been running for over 12 hours. Forgot to clock out? Set the real end time:</span>
-              <input
-                type="datetime-local"
-                className="input"
-                style={{ width: 'auto' }}
-                value={manualOut || toLocalInput(new Date())}
-                min={toLocalInput(active.clock_in)}
-                max={toLocalInput(new Date())}
-                onChange={e => setManualOut(e.target.value)}
-              />
+              <TimeField value={manualOut || new Date()} onChange={setManualOut} />
             </div>
           )}
           <button className="clock-btn out" onClick={() => setReviewing(true)}>
@@ -199,7 +189,7 @@ export default function Clock() {
       {reviewing && active && (
         <ClockOutPanel
           session={active}
-          initialOut={manualOut ? fromLocalInput(manualOut) : new Date()}
+          initialOut={manualOut || new Date()}
           onSaved={onSaved}
           onCancel={() => setReviewing(false)}
         />

@@ -1,17 +1,20 @@
 import { useState } from 'react'
 import { patch } from '../api.js'
-import { toLocalInput, fromLocalInput, fmtDuration } from '../time.js'
+import { fmtDuration } from '../time.js'
 import { Modal, ClientDot } from './ui.jsx'
+import TimeField from './TimeField.jsx'
 
 /* Adjust a completed session's times — for the days you forgot to clock in. */
 export default function EditSessionModal({ session, onSaved, onClose }) {
-  const [inn, setInn] = useState(toLocalInput(session.clock_in))
-  const [out, setOut] = useState(toLocalInput(session.clock_out))
+  const [inn, setInn] = useState(new Date(session.clock_in))
+  const [out, setOut] = useState(new Date(session.clock_out))
+  const [innOk, setInnOk] = useState(true)
+  const [outOk, setOutOk] = useState(true)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
-  const durMin = (fromLocalInput(out) - fromLocalInput(inn)) / 60000
-  const valid = durMin > 0
+  const durMin = (out - inn) / 60000
+  const valid = innOk && outOk && durMin > 0
 
   const save = async () => {
     if (!valid || saving) return
@@ -19,8 +22,8 @@ export default function EditSessionModal({ session, onSaved, onClose }) {
     setError('')
     try {
       await patch(`/sessions/${session.id}`, {
-        clock_in: fromLocalInput(inn).toISOString(),
-        clock_out: fromLocalInput(out).toISOString(),
+        clock_in: inn.toISOString(),
+        clock_out: out.toISOString(),
       })
       onSaved()
     } catch (e) {
@@ -38,18 +41,16 @@ export default function EditSessionModal({ session, onSaved, onClose }) {
         </div>
         <div className="field">
           <span className="label">Clock in</span>
-          <input type="datetime-local" className="input" value={inn}
-            onChange={e => setInn(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') save() }} />
+          <TimeField value={inn} onChange={setInn} onValidity={setInnOk} onEnter={save} />
         </div>
         <div className="field">
           <span className="label">Clock out</span>
-          <input type="datetime-local" className="input" value={out}
-            onChange={e => setOut(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') save() }} />
+          <TimeField value={out} onChange={setOut} onValidity={setOutOk} onEnter={save} />
         </div>
         <div className="label" style={{ color: valid ? 'var(--text-2)' : '#e94560' }}>
-          {valid ? `Duration · ${fmtDuration(durMin)}` : 'Clock-out must be after clock-in'}
+          {!innOk || !outOk
+            ? 'Type a time like 2:30 PM or 14:30'
+            : valid ? `Duration · ${fmtDuration(durMin)}` : 'Clock-out must be after clock-in'}
         </div>
       </div>
       {error && <div className="field-error" style={{ marginTop: 16, fontSize: 13 }}>{error}</div>}

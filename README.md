@@ -8,29 +8,27 @@ measured against contracted hours.
 Local-first: all data lives in a SQLite file on disk. This data drives client
 invoicing — nothing is stubbed, deletes are soft, history is never overwritten.
 
-## Deploy on Vercel
+## Deploy on Vercel (with Supabase)
 
 The front end deploys as a static Vite build; the API runs as a serverless
 function (`api/index.js`) wrapping the same Express app used locally. Vercel
-has no persistent disk, so the deployed API needs a hosted database —
-[Turso](https://turso.tech) (hosted SQLite, free tier) keeps the schema and
-queries identical.
+has no persistent disk, so the deployed API stores data in a Supabase
+Postgres database (free tier). The schema creates itself on first request.
 
-One-time setup:
+One-time setup — dashboard clicks only, no terminal:
 
-```bash
-brew install tursodatabase/tap/turso
-turso auth login                  # GitHub sign-in
-turso db create tempo
-turso db show tempo --url         # → TURSO_DATABASE_URL
-turso db tokens create tempo      # → TURSO_AUTH_TOKEN
-```
+1. [supabase.com](https://supabase.com) → sign in with GitHub → **New
+   project** → name it `tempo`, choose a database password (save it), pick a
+   region near you.
+2. When the project is ready, click **Connect** (top bar) → **Connection
+   string** → choose **Transaction pooler** (important: the direct
+   connection doesn't work from Vercel) → copy the URI and replace
+   `[YOUR-PASSWORD]` with your database password.
+3. Vercel → tempo project → **Settings → Environment Variables** → add
+   `DATABASE_URL` = that URI → Save.
+4. **Deployments → ⋯ → Redeploy.**
 
-Add both values in Vercel → Project → Settings → Environment Variables, then
-redeploy. Until they're set, `/api/*` returns a clear 503 explaining this.
-
-Optional: copy local data up with
-`sqlite3 data/tempo.db .dump | turso db shell tempo`.
+Until `DATABASE_URL` is set, `/api/*` returns a clear 503 explaining this.
 
 Since this holds billing data, enable **Settings → Deployment Protection →
 Vercel Authentication** so only you can open the deployed app.

@@ -92,12 +92,17 @@ app.get('/api/projects', h(async (req, res) => {
 }))
 
 app.post('/api/projects', h(async (req, res) => {
-  const { client_id, name } = req.body
+  const { client_id, name, status, question_text } = req.body
   if (!client_id || !(name || '').trim()) throw httpError(400, 'client_id and name are required')
-  const project = await q1(null,
+  if (status === 'complete') throw httpError(400, 'new projects need an active status')
+  let project = await q1(null,
     'INSERT INTO projects (client_id, name) VALUES (?,?) RETURNING *', [client_id, name.trim()])
   await q(null, 'INSERT INTO status_events (project_id, status, source) VALUES (?,?,?)',
     [project.id, 'in_queue', 'created'])
+  if (status && status !== 'in_queue') {
+    await applyStatus(null, project, status, question_text, 'created')
+    project = await q1(null, 'SELECT * FROM projects WHERE id = ?', [project.id])
+  }
   res.json(await withExtras(null, project))
 }))
 

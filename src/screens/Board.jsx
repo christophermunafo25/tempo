@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { get, patch } from '../api.js'
-import { STATUSES } from '../time.js'
-import { ClientFilter, ClientDot, Modal, EmptyState } from '../components/ui.jsx'
+import { get, post, patch } from '../api.js'
+import { STATUSES, statusMeta } from '../time.js'
+import { ClientFilter, ClientDot, Dropdown, Modal, StatusPill, EmptyState } from '../components/ui.jsx'
 import ProjectDrawer from './ProjectDrawer.jsx'
 
 export default function Board() {
@@ -14,6 +14,7 @@ export default function Board() {
   const [pendingDrop, setPendingDrop] = useState(null) // {project, status}
   const [questionText, setQuestionText] = useState('')
   const [drawerId, setDrawerId] = useState(null)
+  const [addCol, setAddCol] = useState(null) // status key of the column being added to
 
   const refresh = useCallback(() => {
     get(`/board${filter ? `?client_id=${filter}` : ''}`).then(setProjects)
@@ -50,11 +51,10 @@ export default function Board() {
         <ClientFilter clients={clients} value={filter} onChange={setFilter} />
       </div>
 
-      {projects.length === 0 ? (
+      {clients.length === 0 ? (
         <div className="card rise" style={{ '--i': 2 }}>
           <EmptyState>
-            No projects on the board yet. Projects appear here as you log them at clock-out
-            {filter ? ' — or clear the client filter.' : '.'}
+            No clients yet. Add your first client on the Clock screen, then build the board here.
           </EmptyState>
         </div>
       ) : (
@@ -65,7 +65,16 @@ export default function Board() {
               <div key={col.key}>
                 <div className="col-head">
                   <span className="label" style={{ fontSize: 10 }}>{col.short || col.label}</span>
-                  <span className="col-count">{items.length}</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <span className="col-count">{items.length}</span>
+                    {col.key !== 'complete' && (
+                      <button className="st-ctl" style={{ fontSize: 14, lineHeight: 1 }}
+                        aria-label={`Add project to ${col.label}`}
+                        onClick={() => setAddCol(col.key)}>
+                        +
+                      </button>
+                    )}
+                  </span>
                 </div>
                 <div
                   className={`col-body${overCol === col.key ? ' over' : ''}`}
@@ -161,9 +170,88 @@ export default function Board() {
         </Modal>
       )}
 
+      {addCol && (
+        <AddProjectModal
+          status={addCol}
+          clients={clients}
+          defaultClientId={filter}
+          onSaved={() => { setAddCol(null); refresh() }}
+          onClose={() => setAddCol(null)}
+        />
+      )}
+
       {drawerId && (
         <ProjectDrawer projectId={drawerId} onClose={() => { setDrawerId(null); refresh() }} />
       )}
     </div>
+  )
+}
+
+function AddProjectModal({ status, clients, defaultClientId, onSaved, onClose }) {
+  const [name, setName] = useState('')
+  const [clientId, setClientId] = useState(defaultClientId ?? (clients.length === 1 ? clients[0].id : null))
+  const [question, setQuestion] = useState('')
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const needsQuestion = status === 'questions'
+  const valid = name.trim() && clientId && (!needsQuestion || question.trim())
+
+  const save = async () => {
+    if (!valid || saving) return
+    setSaving(true)
+    setError('')
+    try {
+      await post('/projects', {
+        client_id: clientId,
+        name,
+        status,
+        question_text: question,
+      })
+      onSaved()
+    } catch (e) {
+      setError(e.message)
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal title="Add project" onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span className="label">Starts in</span>
+          <StatusPill status={status} />
+        </div>
+        <div className="field">
+          <span className="label">Project name</span>
+          <input className="input" autoFocus value={name}
+            onChange={e => setName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') save() }} />
+        </div>
+        <div className="field">
+          <span className="label">Client</span>
+          <Dropdown
+            value={clientId}
+            placeholder="Select a client"
+            options={clients.map(c => ({ value: c.id, label: c.name, dot: c.color_accent }))}
+            onSelect={setClientId}
+          />
+        </div>
+        {needsQuestion && (
+          <div className="field">
+            <span className="label">What’s the question or concern?</span>
+            <textarea className="textarea" value={question}
+              onChange={e => setQuestion(e.target.value)} />
+          </div>
+        )}
+      </div>
+      {error && <div className="field-error" style={{ marginTop: 16, fontSize: 13 }}>{error}</div>}
+      <div className="modal-actions">
+        <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        <button className="btn" onClick={save} disabled={!valid || saving}>
+          {saving ? 'Adding…' : `Add to ${statusMeta(status).short || statusMeta(status).label}`}
+        </button>
+      </div>
+    </Modal>
   )
 }

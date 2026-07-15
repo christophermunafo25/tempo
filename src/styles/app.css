@@ -829,6 +829,26 @@ a { color: inherit; text-decoration: none; }
 .ts-bar .track { height: 6px; }
 .ts-over { font-family: var(--font-mono); font-size: 11px; color: var(--st-amber); white-space: nowrap; }
 
+.exp-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 2fr) 110px minmax(130px, 1fr) minmax(110px, 1fr) minmax(120px, 1fr);
+  gap: var(--space-4);
+  align-items: center;
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 14px;
+}
+.exp-row:last-child { border-bottom: none; }
+.exp-row.head {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.75px;
+  text-transform: uppercase;
+  color: var(--text-4);
+  padding: var(--space-2) 0;
+}
+.exp-row .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
 .pace { font-family: var(--font-mono); font-size: 12px; color: var(--text-3); }
 .pace.ahead { color: var(--st-green); }
 .pace.behind { color: var(--st-amber); }

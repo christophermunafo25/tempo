@@ -69,6 +69,14 @@ CREATE TABLE IF NOT EXISTS status_events (
   source TEXT NOT NULL DEFAULT 'session',
   created_at TEXT NOT NULL DEFAULT ${nowDefault}
 );
+CREATE TABLE IF NOT EXISTS expenses (
+  id ${idCol},
+  name TEXT NOT NULL,
+  cadence TEXT NOT NULL DEFAULT 'monthly'
+    CHECK (cadence IN ('monthly','quarterly','annually','fixed')),
+  amount REAL NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT ${nowDefault}
+);
 `
 
 const SCHEMA_SQLITE = SCHEMA_COMMON(

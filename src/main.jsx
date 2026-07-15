@@ -6,6 +6,7 @@ import Clock from './screens/Clock.jsx'
 import Dashboard from './screens/Dashboard.jsx'
 import Board from './screens/Board.jsx'
 import Timesheets from './screens/Timesheets.jsx'
+import Expenses from './screens/Expenses.jsx'
 import './styles/app.css'
 
 const router = createBrowserRouter([
@@ -17,6 +18,7 @@ const router = createBrowserRouter([
       { path: 'dashboard', element: <Dashboard /> },
       { path: 'board', element: <Board /> },
       { path: 'timesheets', element: <Timesheets /> },
+      { path: 'expenses', element: <Expenses /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
   },

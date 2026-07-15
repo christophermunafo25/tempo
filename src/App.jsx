@@ -6,6 +6,7 @@ const NAV = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/board', label: 'Board' },
   { to: '/timesheets', label: 'Timesheets' },
+  { to: '/expenses', label: 'Expenses' },
 ]
 
 export default function App() {

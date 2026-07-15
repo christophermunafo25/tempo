@@ -79,6 +79,26 @@ export function toLocalInput(date) {
 }
 export const fromLocalInput = (val) => new Date(val)
 
+export const fmtMoney = (n) =>
+  '$' + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+export const EXPENSE_CADENCES = [
+  { key: 'monthly', label: 'Monthly', suffix: '/mo' },
+  { key: 'quarterly', label: 'Quarterly', suffix: '/qtr' },
+  { key: 'annually', label: 'Annually', suffix: '/yr' },
+  { key: 'fixed', label: 'One-time', suffix: 'once' },
+]
+export const cadenceMeta = (key) => EXPENSE_CADENCES.find(c => c.key === key) || EXPENSE_CADENCES[0]
+
+/* Normalized views of an expense. One-time costs stay out of the recurring
+   monthly number; they join the annual overview as a single hit. */
+export const monthlyOf = (e) =>
+  e.cadence === 'monthly' ? e.amount
+    : e.cadence === 'quarterly' ? e.amount / 3
+    : e.cadence === 'annually' ? e.amount / 12
+    : 0
+export const annualOf = (e) => e.cadence === 'fixed' ? e.amount : monthlyOf(e) * 12
+
 export function downloadCSV(filename, rows) {
   const esc = (v) => {
     const s = String(v ?? '')

@@ -373,6 +373,45 @@ app.get('/api/archive', h(async (req, res) => {
   }))))
 }))
 
+/* ── Expenses (no banking data — just names, cadence, amounts) ────────── */
+
+const CADENCES = ['monthly', 'quarterly', 'annually', 'fixed']
+
+function validExpense(body) {
+  const name = (body.name || '').trim()
+  if (!name) throw httpError(400, 'name is required')
+  const cadence = body.cadence || 'monthly'
+  if (!CADENCES.includes(cadence)) throw httpError(400, `invalid cadence: ${cadence}`)
+  const amount = Number(body.amount)
+  if (!Number.isFinite(amount) || amount < 0) throw httpError(400, 'amount must be a non-negative number')
+  return { name, cadence, amount: Math.round(amount * 100) / 100 }
+}
+
+app.get('/api/expenses', h(async (req, res) => {
+  res.json(await q(null, 'SELECT * FROM expenses ORDER BY amount DESC, name'))
+}))
+
+app.post('/api/expenses', h(async (req, res) => {
+  const { name, cadence, amount } = validExpense(req.body)
+  res.json(await q1(null,
+    'INSERT INTO expenses (name, cadence, amount) VALUES (?,?,?) RETURNING *',
+    [name, cadence, amount]))
+}))
+
+app.patch('/api/expenses/:id', h(async (req, res) => {
+  const expense = await q1(null, 'SELECT * FROM expenses WHERE id = ?', [req.params.id])
+  if (!expense) throw httpError(404, 'expense not found')
+  const { name, cadence, amount } = validExpense({ ...expense, ...req.body })
+  res.json(await q1(null,
+    'UPDATE expenses SET name=?, cadence=?, amount=? WHERE id=? RETURNING *',
+    [name, cadence, amount, expense.id]))
+}))
+
+app.delete('/api/expenses/:id', h(async (req, res) => {
+  await q(null, 'DELETE FROM expenses WHERE id = ?', [req.params.id])
+  res.json({ ok: true })
+}))
+
 /* ── Static app (local production: `npm start` serves built UI + API) ── */
 
 const DIST = path.join(__dirname, '..', 'dist')

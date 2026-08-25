@@ -3,3 +3,7 @@ data/
 dist/
 .DS_Store
 *.log
+.vercel
+.env*
+.agents/
+.claude/skills/

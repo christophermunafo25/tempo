@@ -88,17 +88,39 @@ const SCHEMA_PG = SCHEMA_COMMON(
   "(to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'))",
 )
 
+// Vercel stores exactly what was pasted. A value wrapped in quotes, prefixed
+// with `DATABASE_URL=`, or carrying a leading space does not fail loudly: the
+// driver parses it as host "base" and reports a baffling DNS error. Strip the
+// artifacts that are unambiguous, then insist on a real URI.
+const DB_URL = (process.env.DATABASE_URL || '').trim().replace(/^(['"])([\s\S]*)\1$/, '$2').trim()
+const IS_URI = /^postgres(ql)?:\/\//.test(DB_URL)
+
+const unconfigured = (message) => {
+  dbError = message
+  return {
+    query() { throw new Error(dbError) },
+    withTx() { throw new Error(dbError) },
+    async init() {},
+  }
+}
+
 let backend
 
-if (process.env.DATABASE_URL) {
+if (DB_URL && !IS_URI) {
+  backend = unconfigured(
+    'DATABASE_URL is set but is not a Postgres connection URI \u2014 it must start with ' +
+    'postgresql:// . Re-add it with the bare string from Supabase \u2192 Connect \u2192 ' +
+    'Transaction pooler, with no surrounding quotes, no "DATABASE_URL=" prefix and no ' +
+    'leading space.')
+} else if (DB_URL) {
   /* ── Postgres (Supabase) ─────────────────────────────────────────────── */
   const { default: pg } = await import('pg')
   // COUNT()/SUM() come back as int8/numeric strings — parse them.
   pg.types.setTypeParser(20, Number)     // int8
   pg.types.setTypeParser(1700, Number)   // numeric
   const pool = new pg.Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.DATABASE_URL.includes('localhost') ? false : { rejectUnauthorized: false },
+    connectionString: DB_URL,
+    ssl: DB_URL.includes('localhost') ? false : { rejectUnauthorized: false },
     max: ON_VERCEL ? 1 : 5,
   })
   const toPg = (sql) => {
@@ -155,12 +177,7 @@ if (process.env.DATABASE_URL) {
     },
   }
 } else {
-  dbError = 'No database configured. Set DATABASE_URL (Supabase → Settings → Database → Connection string, transaction pooler) in the Vercel project settings — see README.'
-  backend = {
-    query() { throw new Error(dbError) },
-    withTx() { throw new Error(dbError) },
-    async init() {},
-  }
+  backend = unconfigured('No database configured. Set DATABASE_URL (Supabase → Connect → Connection string, transaction pooler) in the Vercel project settings — see README.')
 }
 
 /* conn is an open transaction handle, or null/undefined for the pool. */

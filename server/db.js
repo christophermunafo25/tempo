@@ -167,4 +167,38 @@ if (process.env.DATABASE_URL) {
 export const q = (conn, sql, args = []) => backend.query(conn, sql, args)
 export const q1 = async (conn, sql, args = []) => (await backend.query(conn, sql, args))[0]
 export const withTx = (fn) => backend.withTx(fn)
-export const ready = backend.init()
+
+// Supabase pauses free-tier projects after a stretch of inactivity, and a
+// paused project fails at connect time with a network-level error.
+const PAUSED_HINTS = ['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT', 'Tenant or user not found']
+
+function unreachableMessage(err) {
+  const detail = err.message || String(err)
+  if (!PAUSED_HINTS.some(hint => detail.includes(hint))) {
+    return `Database setup failed: ${detail}`
+  }
+  return `Can\u2019t reach the database (${detail}). Supabase pauses free-tier projects ` +
+    'after a stretch of inactivity \u2014 open the project in the Supabase dashboard, click ' +
+    'Restore, wait for it to report healthy, then reload.'
+}
+
+// Schema creation runs once per process. When it fails, every /api request
+// answers 503 with the reason rather than the process dying on an opaque
+// invocation failure. Clearing the promise lets a later request retry, so a
+// restored database recovers without waiting for the instance to recycle.
+let initPromise = null
+
+export function ensureReady() {
+  if (!initPromise) {
+    initPromise = backend.init().catch((err) => {
+      initPromise = null
+      throw new Error(unreachableMessage(err))
+    })
+  }
+  return initPromise
+}
+
+// Entry points await this at boot to warm the connection. It never rejects: a
+// database that is down should make requests explain themselves, not stop the
+// server from starting at all.
+export const ready = ensureReady().catch(() => {})

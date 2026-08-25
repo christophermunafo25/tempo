@@ -30,6 +30,30 @@ One-time setup — dashboard clicks only, no terminal:
 
 Until `DATABASE_URL` is set, `/api/*` returns a clear 503 explaining this.
 
+The project currently in use is `lzqnnvxgrnuogvwishaa`
+(https://lzqnnvxgrnuogvwishaa.supabase.co). `DATABASE_URL` is set on Vercel for
+the Production environment only, so preview deployments answer 503 rather than
+writing to the billing database.
+
+Note this project lives under a different Supabase account than the one the
+local `supabase` CLI is logged into, so CLI commands won't see it. Nothing
+depends on that — the app builds its own schema on first request — but
+`supabase login` against the owning account is needed before any CLI work.
+
+### If the deployed app stops loading
+
+Supabase pauses free-tier projects after a stretch of inactivity, and a paused
+project refuses connections. `/api/*` then answers 503 with the reason. The
+fix is a dashboard click, not a redeploy:
+
+1. [supabase.com/dashboard](https://supabase.com/dashboard) → the `tempo`
+   project → **Restore project**.
+2. Wait for the project to report healthy (a minute or two).
+3. Reload the app. No redeploy needed — the next request retries the
+   connection on its own.
+
+Restoring keeps the same connection string, so `DATABASE_URL` stays valid.
+
 Since this holds billing data, enable **Settings → Deployment Protection →
 Vercel Authentication** so only you can open the deployed app.
 

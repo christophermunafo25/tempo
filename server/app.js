@@ -2,7 +2,7 @@ import express from 'express'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { q, q1, withTx, ready, dbError } from './db.js'
+import { q, q1, withTx, ready, ensureReady, dbError } from './db.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ON_VERCEL = !!process.env.VERCEL
@@ -48,10 +48,15 @@ app.use(express.json())
 // Express 4 doesn't catch async errors — every handler goes through this.
 const h = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next)
 
-app.use('/api', (req, res, next) => {
+app.use('/api', h(async (req, res, next) => {
   if (dbError) return res.status(503).json({ error: dbError })
+  try {
+    await ensureReady()
+  } catch (err) {
+    return res.status(503).json({ error: err.message })
+  }
   next()
-})
+}))
 
 /* ── Clients ─────────────────────────────────────────────────────────── */
 

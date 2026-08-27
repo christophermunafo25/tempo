@@ -1,25 +1,32 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { get, post, patch } from '../api.js'
 import { ClientDot, Checkbox, EmptyState, WeekStepper } from '../components/ui.jsx'
+import Thread from '../components/Thread.jsx'
 import { weekRange, fmtRange, fmtDate, fmtTime, fmtHours, localDayKey } from '../time.js'
 
 const TABS = [
   { key: 'access', label: 'Access' },
   { key: 'publishing', label: 'Publishing' },
   { key: 'requests', label: 'Requests' },
+  { key: 'threads', label: 'Messages' },
 ]
 
 export default function Portal() {
   const [tab, setTab] = useState('access')
   const [clients, setClients] = useState([])
   const [requests, setRequests] = useState([])
+  const [threads, setThreads] = useState([])
 
   const refreshClients = useCallback(() => get('/access/clients').then(setClients), [])
   const refreshRequests = useCallback(() => get('/access/requests').then(setRequests), [])
+  const refreshThreads = useCallback(() => get('/access/threads').then(setThreads), [])
 
-  useEffect(() => { refreshClients(); refreshRequests() }, [refreshClients, refreshRequests])
+  useEffect(() => {
+    refreshClients(); refreshRequests(); refreshThreads()
+  }, [refreshClients, refreshRequests, refreshThreads])
 
   const pending = requests.filter(r => r.portal_request === 'pending').length
+  const unread = threads.reduce((a, t) => a + t.unread_count, 0)
 
   return (
     <div className="screen">
@@ -32,6 +39,7 @@ export default function Portal() {
               onClick={() => setTab(t.key)}>
               {t.label}
               {t.key === 'requests' && pending > 0 && <span className="tab-badge">{pending}</span>}
+              {t.key === 'threads' && unread > 0 && <span className="tab-badge">{unread}</span>}
             </button>
           ))}
         </div>
@@ -40,6 +48,7 @@ export default function Portal() {
       {tab === 'access' && <AccessTab clients={clients} onChange={refreshClients} />}
       {tab === 'publishing' && <PublishingTab clients={clients} />}
       {tab === 'requests' && <RequestsTab requests={requests} onChange={refreshRequests} />}
+      {tab === 'threads' && <ThreadsTab threads={threads} onChange={refreshThreads} />}
     </div>
   )
 }
@@ -409,6 +418,69 @@ function RequestCard({ request, onChange, style }) {
             <button className="btn btn-outline btn-sm" onClick={() => setDeclining(true)}>Decline</button>
           </div>
         )}
+    </section>
+  )
+}
+
+/* ── Messages ────────────────────────────────────────────────────────────
+   The owner half of the client comment threads. Unread counts are the only
+   notification in the system — nothing sends email, push or webhooks. */
+
+function ThreadsTab({ threads, onChange }) {
+  const [openId, setOpenId] = useState(null)
+
+  if (!threads.length) {
+    return <EmptyState>No messages yet. They’ll appear here when a client writes on a project.</EmptyState>
+  }
+
+  return (
+    <div className="portal-list">
+      {threads.map((t, i) => (
+        <ThreadCard key={t.id} thread={t} open={openId === t.id}
+          onOpen={() => setOpenId(openId === t.id ? null : t.id)}
+          onChange={onChange} style={{ '--i': i }} />
+      ))}
+    </div>
+  )
+}
+
+function ThreadCard({ thread, open, onOpen, onChange, style }) {
+  const [comments, setComments] = useState(null)
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    get(`/access/projects/${thread.id}/comments`).then(async (list) => {
+      if (cancelled) return
+      setComments(list)
+      await post(`/access/projects/${thread.id}/read`)
+      onChange()
+    })
+    return () => { cancelled = true }
+  }, [open, thread.id])
+
+  const send = async (body) => {
+    setComments(await post(`/access/projects/${thread.id}/comments`, { body }))
+    onChange()
+  }
+
+  return (
+    <section className="card rise portal-card" style={style}>
+      <button className="portal-thread-head" onClick={onOpen} aria-expanded={open}>
+        <h2 className="portal-company">
+          <ClientDot color={thread.color_accent} size={10} />
+          {thread.name}
+          {thread.unread_count > 0 && <span className="tab-badge">{thread.unread_count}</span>}
+        </h2>
+        <span className="portal-dim">
+          {thread.client_name} · {thread.comment_count} message{thread.comment_count === 1 ? '' : 's'}
+          {thread.last_comment_at ? ` · ${fmtDate(thread.last_comment_at)}` : ''}
+        </span>
+      </button>
+
+      {open && (comments
+        ? <Thread comments={comments} onPost={send} placeholder="Reply to the client…" />
+        : <p className="portal-dim">Loading…</p>)}
     </section>
   )
 }

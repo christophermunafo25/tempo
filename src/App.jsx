@@ -9,7 +9,7 @@ const NAV = [
   { to: '/board', label: 'Board' },
   { to: '/timesheets', label: 'Timesheets' },
   { to: '/expenses', label: 'Expenses' },
-  { to: '/portal', label: 'Portal' },
+  { to: '/access', label: 'Portal' },
 ]
 
 export default function App() {

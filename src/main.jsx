@@ -15,6 +15,7 @@ import PortalApp from './portal/PortalApp.jsx'
 import PortalOverview from './portal/screens/Overview.jsx'
 import PortalHours from './portal/screens/Hours.jsx'
 import PortalProjects from './portal/screens/Projects.jsx'
+import PortalProjectDetail from './portal/screens/ProjectDetail.jsx'
 import { AuthProvider } from './auth.jsx'
 import './styles/app.css'
 
@@ -34,6 +35,7 @@ const router = createBrowserRouter([
       { index: true, element: <PortalOverview /> },
       { path: 'hours', element: <PortalHours /> },
       { path: 'projects', element: <PortalProjects /> },
+      { path: 'projects/:id', element: <PortalProjectDetail /> },
       { path: '*', element: <Navigate to="/portal" replace /> },
     ],
   },
@@ -46,7 +48,9 @@ const router = createBrowserRouter([
       { path: 'board', element: <Board /> },
       { path: 'timesheets', element: <Timesheets /> },
       { path: 'expenses', element: <Expenses /> },
-      { path: 'portal', element: <Portal /> },
+      // /access, not /portal: the client shell owns /portal, and two routes
+      // matching the same path silently hid this screen.
+      { path: 'access', element: <Portal /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
   },

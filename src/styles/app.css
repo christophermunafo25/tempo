@@ -1151,3 +1151,86 @@ a { color: inherit; text-decoration: none; }
 .portal-center { text-align: center; }
 
 .portal-total td { font-weight: 400; border-top-color: var(--hairline-strong); }
+
+/* ── Comment threads ──────────────────────────────────────────────────── */
+
+.thread { display: flex; flex-direction: column; gap: var(--space-5); }
+
+.thread-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-height: 420px;
+  overflow-y: auto;
+}
+.thread-item {
+  padding: var(--space-4);
+  border-radius: var(--radius-input);
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+}
+/* Your own messages sit visually apart without a chat-bubble alignment
+   gimmick, which reads badly once a message runs long. */
+.thread-item.is-mine { background: var(--accent-soft); border-color: transparent; }
+
+.thread-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+.thread-author { font-size: 13px; font-weight: 500; }
+.thread-when { font-size: 11px; color: var(--text-4); }
+.thread-body {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 300;
+  line-height: 1.55;
+  white-space: pre-wrap;   /* honour the author's line breaks, nothing more */
+  overflow-wrap: anywhere;
+}
+.thread-body.is-deleted { color: var(--text-4); font-style: italic; }
+
+.thread-form { display: flex; flex-direction: column; gap: var(--space-3); }
+.thread-actions { display: flex; align-items: center; gap: var(--space-3); }
+.thread-actions .spacer { flex: 1; }
+
+.portal-thread-head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  width: 100%;
+  text-align: left;
+}
+
+.portal-back { align-self: flex-start; margin-bottom: var(--space-4); }
+.portal-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-8);
+}
+.portal-detail-title { margin-bottom: 0; }
+
+.portal-project-link { display: block; color: inherit; }
+.portal-project-link:hover .portal-company { color: var(--accent); }
+
+.portal-edit { display: flex; flex-direction: column; gap: var(--space-4); }
+
+.portal-subtasks { list-style: none; display: flex; flex-direction: column; gap: var(--space-3); }
+.portal-subtasks li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 14px;
+  font-weight: 300;
+}
+/* Read-only: this is Chris's task breakdown, not the client's to tick off. */
+.portal-subtasks .checkbox { pointer-events: none; }
+.portal-subtasks .is-done { color: var(--text-3); text-decoration: line-through; }
+
+.portal-links { list-style: none; display: flex; flex-wrap: wrap; gap: var(--space-2); }

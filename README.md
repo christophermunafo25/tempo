@@ -179,6 +179,40 @@ per company, so each session is split evenly across the projects worked on in
 it. Time logged with no project attached appears as `(untagged)` rather than
 being dropped, so the breakdown always reconciles to the total above it.
 
+### What a client can change
+
+Editing, requesting and commenting are allowed; the workflow is not. The
+writable set is an allowlist — the handlers read the fields they accept by
+name and never spread the request body, so `status`, `question_text`,
+`client_id`, `portal_request` and `completed_at` are not rejected with an
+error, they are simply never read.
+
+| Surface | Client can | Why |
+|---|---|---|
+| Project name, brief | edit | The brief is what the feature actually needed |
+| Comments | add | Threads are shared with the owner |
+| Comments | edit or delete | **no** — immutable; history is the record |
+| Asset links | add | They drop briefs and reference material |
+| Asset links | delete | **no** — removal was not part of the ask |
+| Projects | request | Lands as `portal_request='pending'` for you to accept |
+| Project status | **no** | Your board, your archive |
+| Subtasks | read-only | Your execution breakdown; ticking them off would put the board's own counts in a client's hands |
+| Sessions, hours | read-only | Client-side time entry stays out of scope |
+
+Every edit appends to `project_revisions` inside the same transaction as the
+UPDATE, so a change and its history land together or not at all. Every write
+appends to `portal_audit`. Writes are capped at 60 per user per 10 minutes.
+
+Unread counts are the only notification in the system. Nothing sends email,
+push or webhooks — a badge appears on the Portal screen's Messages tab, and on
+the client's side against the project. That is deliberate: a comment feature
+where you never learn a comment arrived is a dead feature, but this is not a
+notification system.
+
+The owner's Portal screen lives at `/access`, not `/portal` — the client shell
+owns `/portal`, and two routes matching one path silently hid the owner screen
+once the client shell existed.
+
 ### TEMPO_TZ
 
 "The day a session belongs to" has to mean one thing. The owner's screens use

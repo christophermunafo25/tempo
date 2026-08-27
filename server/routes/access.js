@@ -12,6 +12,7 @@ import {
   normEmail, audit, revokeAllSessions,
   issueOneTimeToken, burnOutstanding, TOKEN_TTL,
 } from '../auth.js'
+import { listComments, addComment, markRead, validComment } from '../portal-query.js'
 
 const router = express.Router()
 const nowISO = () => new Date().toISOString()
@@ -239,6 +240,66 @@ router.post('/requests/:id/decline', h(async (req, res) => {
   })
 
   res.json(await q1(null, 'SELECT * FROM projects WHERE id = ?', [project.id]))
+}))
+
+/* ── Threads ─────────────────────────────────────────────────────────────
+   The owner half of the client comment threads. A comment feature where the
+   owner never learns a comment arrived is a dead feature, so this carries an
+   unread count — the only concession to notification. Nothing here sends
+   email, push or webhooks. */
+
+router.get('/threads', h(async (req, res) => {
+  const viewerId = req.portalUser.id
+  const rows = await q(null, `
+    SELECT p.id, p.name, p.portal_request,
+           c.id AS client_id, c.name AS client_name, c.color_accent,
+           (SELECT COUNT(*) FROM project_comments x
+             WHERE x.project_id = p.id AND x.deleted_at IS NULL) AS comment_count,
+           (SELECT MAX(x.created_at) FROM project_comments x
+             WHERE x.project_id = p.id AND x.deleted_at IS NULL) AS last_comment_at,
+           (SELECT COUNT(*) FROM project_comments x
+             LEFT JOIN project_comment_reads r
+               ON r.project_id = x.project_id AND r.portal_user_id = ?
+            WHERE x.project_id = p.id AND x.deleted_at IS NULL
+              AND x.portal_user_id != ?
+              AND (r.last_read_at IS NULL OR x.created_at > r.last_read_at)) AS unread_count
+    FROM projects p
+    JOIN clients c ON c.id = p.client_id
+    WHERE EXISTS (SELECT 1 FROM project_comments y WHERE y.project_id = p.id)
+    ORDER BY last_comment_at DESC`, [viewerId, viewerId])
+
+  res.json(rows.map(r => ({
+    ...r,
+    comment_count: Number(r.comment_count || 0),
+    unread_count: Number(r.unread_count || 0),
+  })))
+}))
+
+router.get('/projects/:id/comments', h(async (req, res) => {
+  const project = await q1(null, 'SELECT id FROM projects WHERE id = ?', [req.params.id])
+  if (!project) throw httpError(404, 'project not found')
+  res.json(await listComments(project.id, req.portalUser.id))
+}))
+
+router.post('/projects/:id/comments', h(async (req, res) => {
+  const project = await q1(null, 'SELECT * FROM projects WHERE id = ?', [req.params.id])
+  if (!project) throw httpError(404, 'project not found')
+  const { body, error } = validComment(req.body?.body)
+  if (error) throw httpError(400, error)
+
+  await addComment(null, project.id, req.portalUser.id, body)
+  await markRead(project.id, req.portalUser.id)
+  await audit(req, 'comment', {
+    user: req.portalUser, clientId: project.client_id, detail: project.name,
+  })
+  res.json(await listComments(project.id, req.portalUser.id))
+}))
+
+router.post('/projects/:id/read', h(async (req, res) => {
+  const project = await q1(null, 'SELECT id FROM projects WHERE id = ?', [req.params.id])
+  if (!project) throw httpError(404, 'project not found')
+  await markRead(project.id, req.portalUser.id)
+  res.json({ ok: true })
 }))
 
 /* ── Audit ───────────────────────────────────────────────────────────────

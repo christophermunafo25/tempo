@@ -230,3 +230,143 @@ export async function ownedProject(clientId, projectId) {
     'SELECT id, client_id, name FROM projects WHERE id = ? AND client_id = ?',
     [projectId, clientId]) || null
 }
+
+/* ── Comments ────────────────────────────────────────────────────────────
+   One thread per project, shared by the owner and the client. The author is
+   always a portal_users row — the owner gets one at bootstrap — so there is no
+   polymorphic author column and no role branch at read time.
+
+   Comments are immutable. There is no update path anywhere, and deletion is a
+   soft deleted_at that renders as a placeholder, because history here is the
+   record of what was actually asked and answered. */
+
+export const COMMENT_MAX = 5000
+
+export function validComment(value) {
+  const body = String(value ?? '').trim()
+  if (!body) return { error: 'a comment can’t be empty' }
+  if (body.length > COMMENT_MAX) return { error: `a comment can’t be longer than ${COMMENT_MAX} characters` }
+  return { body }
+}
+
+// Emails are not returned. A client sees who wrote a comment by name and by
+// side, which is all a thread needs and one less identifier to hand across.
+export async function listComments(projectId, viewerId) {
+  const rows = await q(null, `
+    SELECT c.id, c.body, c.created_at, c.deleted_at, c.portal_user_id,
+           u.name AS author_name, u.role AS author_role
+    FROM project_comments c
+    JOIN portal_users u ON u.id = c.portal_user_id
+    WHERE c.project_id = ?
+    ORDER BY c.id`, [projectId])
+
+  return rows.map(r => ({
+    id: r.id,
+    body: r.deleted_at ? null : r.body,
+    deleted: !!r.deleted_at,
+    created_at: r.created_at,
+    author_name: r.author_name || (r.author_role === 'owner' ? 'Chris' : 'Someone'),
+    author_role: r.author_role,
+    is_mine: r.portal_user_id === viewerId,
+  }))
+}
+
+export const addComment = (conn, projectId, portalUserId, body) =>
+  q1(conn, `INSERT INTO project_comments (project_id, portal_user_id, body)
+            VALUES (?,?,?) RETURNING *`, [projectId, portalUserId, body])
+
+// ON CONFLICT DO UPDATE is spelled the same on SQLite 3.24+ and Postgres, and
+// the unique index on (project_id, portal_user_id) is what it conflicts against.
+export const markRead = (projectId, portalUserId, at = new Date().toISOString()) =>
+  q(null, `
+    INSERT INTO project_comment_reads (project_id, portal_user_id, last_read_at)
+    VALUES (?,?,?)
+    ON CONFLICT (project_id, portal_user_id)
+    DO UPDATE SET last_read_at = excluded.last_read_at`, [projectId, portalUserId, at])
+
+/* ── Revisions ───────────────────────────────────────────────────────────
+   "History is never overwritten" applies to a client's edits too. Every field
+   change appends here, inside the same transaction as the UPDATE, so an edit
+   and its record land together or not at all. */
+
+export const recordRevision = (conn, projectId, portalUserId, field, oldValue, newValue) =>
+  q(conn, `INSERT INTO project_revisions (project_id, portal_user_id, field, old_value, new_value)
+           VALUES (?,?,?,?,?)`, [projectId, portalUserId, field, oldValue ?? null, newValue ?? null])
+
+/* ── Project shape ───────────────────────────────────────────────────────
+   Nothing reaches a client except through this. INSERT … RETURNING * hands
+   back every column including question_text, so a raw row must never be
+   serialised into a portal response — even when the value happens to be null,
+   the field name alone tells a client something exists to ask about. */
+
+export const portalProject = (p, extra = {}) => ({
+  id: p.id,
+  name: p.name,
+  description: p.description ?? null,
+  status: portalStatus(p.status),
+  state: p.portal_request || 'active',
+  completed_at: p.completed_at ?? null,
+  created_at: p.created_at,
+  ...extra,
+})
+
+const UNREAD_SQL = `
+  (SELECT COUNT(*) FROM project_comments c
+    LEFT JOIN project_comment_reads r
+      ON r.project_id = c.project_id AND r.portal_user_id = ?
+   WHERE c.project_id = p.id AND c.deleted_at IS NULL
+     AND c.portal_user_id != ?
+     AND (r.last_read_at IS NULL OR c.created_at > r.last_read_at)) AS unread_count`
+
+const COMMENT_COUNT_SQL = `
+  (SELECT COUNT(*) FROM project_comments c
+   WHERE c.project_id = p.id AND c.deleted_at IS NULL) AS comment_count`
+
+// Replaces the plain project list once a viewer exists to count unread against.
+export async function listProjectsFor(clientId, viewerId) {
+  const rows = await q(null, `
+    SELECT p.id, p.name, p.description, p.status, p.completed_at, p.created_at,
+           p.portal_request,
+           ${UNREAD_SQL},
+           ${COMMENT_COUNT_SQL}
+    FROM projects p
+    WHERE p.client_id = ?
+    ORDER BY CASE WHEN p.status = 'complete' THEN 1 ELSE 0 END, p.name`,
+    [viewerId, viewerId, clientId])
+
+  return rows.map(p => portalProject(p, {
+    unread_count: Number(p.unread_count || 0),
+    comment_count: Number(p.comment_count || 0),
+  }))
+}
+
+export async function unreadTotal(clientId, viewerId) {
+  const row = await q1(null, `
+    SELECT COUNT(*) AS n FROM project_comments c
+    JOIN projects p ON p.id = c.project_id
+    LEFT JOIN project_comment_reads r
+      ON r.project_id = c.project_id AND r.portal_user_id = ?
+    WHERE p.client_id = ? AND c.deleted_at IS NULL
+      AND c.portal_user_id != ?
+      AND (r.last_read_at IS NULL OR c.created_at > r.last_read_at)`,
+    [viewerId, clientId, viewerId])
+  return Number(row?.n || 0)
+}
+
+// Subtasks are the owner's execution breakdown, shown read-only: a client can
+// see progress without being able to tick off work items, which would put the
+// board's own counts under their control.
+export async function projectDetail(clientId, projectId, viewerId) {
+  const p = await q1(null, `
+    SELECT id, name, description, status, completed_at, created_at, portal_request
+    FROM projects WHERE id = ? AND client_id = ?`, [projectId, clientId])
+  if (!p) return null
+
+  const [subtasks, links, comments] = await Promise.all([
+    q(null, 'SELECT id, title, is_done FROM subtasks WHERE project_id = ? ORDER BY sort_order, id', [p.id]),
+    q(null, 'SELECT id, label, url FROM asset_links WHERE project_id = ? ORDER BY id', [p.id]),
+    listComments(p.id, viewerId),
+  ])
+
+  return portalProject(p, { subtasks, links, comments })
+}

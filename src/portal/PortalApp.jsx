@@ -18,6 +18,7 @@ export default function PortalApp() {
   const { user, loading, signOut } = useAuth()
   const [theme, setTheme] = useState(() => localStorage.getItem('tempo-theme') || 'light')
   const [company, setCompany] = useState(null)
+  const [unread, setUnread] = useState(0)
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -25,7 +26,10 @@ export default function PortalApp() {
   }, [theme])
 
   useEffect(() => {
-    if (user?.role === 'client') pget('/summary').then(s => setCompany(s.company)).catch(() => {})
+    if (user?.role !== 'client') return
+    pget('/summary')
+      .then(s => { setCompany(s.company); setUnread(s.unread_comments || 0) })
+      .catch(() => {})
   }, [user])
 
   if (loading) return <Splash />
@@ -42,6 +46,9 @@ export default function PortalApp() {
             <NavLink key={n.to} to={n.to} end={n.end}
               className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
               {n.label}
+              {n.to === '/portal/projects' && unread > 0 && (
+                <span className="tab-badge">{unread}</span>
+              )}
             </NavLink>
           ))}
         </nav>

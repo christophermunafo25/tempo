@@ -87,23 +87,26 @@ else is hosted here.
 
 ### First-run owner account
 
-Bootstrap is self-disabling: it needs both an env var *and* an empty owner
-table, so a forgotten variable can't reopen it later.
+There is no sign-up. Accounts come from first-run setup, once, or from an
+invite. Until an owner exists, `/login` shows a setup screen instead of a
+login form — a fresh deployment would otherwise be a form nobody can satisfy.
 
 1. Vercel → **Settings → Environment Variables** → add
-   `PORTAL_BOOTSTRAP_TOKEN` = a long random string. Redeploy.
-2. Create the account:
+   `PORTAL_BOOTSTRAP_TOKEN` = a long random string, and `TEMPO_TZ` =
+   `America/Chicago`. **Redeploy** — env vars don't apply to an already-built
+   deployment.
+2. Open the app. The setup screen asks for that token, your email and a
+   password, then signs you straight in.
+3. **Delete `PORTAL_BOOTSTRAP_TOKEN`** and redeploy.
 
-   ```bash
-   curl -X POST https://<your-deployment>/api/auth/bootstrap \
-     -H 'Content-Type: application/json' \
-     -H 'Origin: https://<your-deployment>' \
-     -d '{"token":"<PORTAL_BOOTSTRAP_TOKEN>","email":"you@example.com","password":"<a long password>","name":"Chris"}'
-   ```
+Setup is self-disabling: it needs both the env var *and* an empty owner table,
+so a forgotten variable can't reopen it later, and the screen disappears the
+moment an owner exists. The token is what stops whoever loads the URL first
+from claiming the deployment.
 
-3. Sign in, confirm the app loads.
-4. **Delete `PORTAL_BOOTSTRAP_TOKEN`** and redeploy. The route answers 404
-   from here on regardless, but leaving the secret around serves no purpose.
+If the screen says setup is locked, the env var isn't set or the deployment
+wasn't rebuilt after adding it. The same flow works locally:
+`PORTAL_BOOTSTRAP_TOKEN=setup-once npm run dev`.
 
 Passwords are hashed with `node:crypto` scrypt. Session tokens are 256-bit
 random values; only their SHA-256 hash is stored, so the database never holds

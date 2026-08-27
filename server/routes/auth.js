@@ -40,6 +40,22 @@ router.get('/me', h(async (req, res) => {
   res.json({ user: publicUser(session?.user) || null })
 }))
 
+/* Tells the sign-in screen whether this deployment has been set up yet, so a
+   fresh install offers first-run setup instead of a login form nobody can
+   satisfy. Reveals only that an owner does or doesn't exist — never the token,
+   and never anything at all once setup is done. */
+
+router.get('/setup', h(async (req, res) => {
+  const { n } = await q1(null, "SELECT COUNT(*) AS n FROM portal_users WHERE role = 'owner'")
+  const needsSetup = Number(n) === 0
+  res.json({
+    needs_setup: needsSetup,
+    // Whether the env var is configured, never its value. Without it the
+    // screen can say what is missing rather than failing opaquely.
+    token_configured: needsSetup ? !!process.env.PORTAL_BOOTSTRAP_TOKEN : false,
+  })
+}))
+
 router.post('/login', h(async (req, res) => {
   const email = normEmail(req.body?.email)
   const password = String(req.body?.password || '')

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { useAuth } from '../auth.jsx'
+import { get } from '../api.js'
+import Setup from './Setup.jsx'
 
 export default function Login() {
   const { user, loading, signIn } = useAuth()
@@ -8,13 +10,24 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  // null while unknown: a fresh deployment has no account, and showing a login
+  // form there is a dead end with no way out of it.
+  const [setup, setSetup] = useState(null)
 
   // The login screen sits outside App.jsx, so it carries the theme itself.
   useEffect(() => {
     document.documentElement.dataset.theme = localStorage.getItem('tempo-theme') || 'light'
   }, [])
 
-  if (loading) return <Splash />
+  useEffect(() => {
+    get('/auth/setup').then(setSetup).catch(() => setSetup({ needs_setup: false }))
+  }, [])
+
+  if (loading || setup === null) return <Splash />
+  if (setup.needs_setup && !user) {
+    return <Setup tokenConfigured={setup.token_configured}
+      onDone={() => setSetup({ needs_setup: false })} />
+  }
   if (user) return <Navigate to={user.role === 'owner' ? '/' : '/portal'} replace />
 
   const submit = async (e) => {
@@ -69,6 +82,8 @@ export default function Login() {
         <button className="btn btn-accent auth-submit" type="submit" disabled={busy}>
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
+
+        <Link className="auth-hint portal-center" to="/forgot">Forgot your password?</Link>
       </form>
     </div>
   )

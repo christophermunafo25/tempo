@@ -82,6 +82,18 @@ let otherCo = null
 
 /* ── 1. Bootstrap ────────────────────────────────────────────────────── */
 
+test('a fresh deployment reports that it needs setup', async () => {
+  const r = await call('GET', '/api/auth/setup')
+  assert.equal(r.status, 200)
+  assert.equal(r.json.needs_setup, true, 'no owner yet')
+  assert.equal(r.json.token_configured, true, 'the env var is set in this suite')
+})
+
+test('the setup state never reveals the token itself', async () => {
+  const r = await call('GET', '/api/auth/setup')
+  assert.ok(!r.text.includes('bootstrap-secret-for-tests'))
+})
+
 test('bootstrap rejects a wrong token', async () => {
   const r = await call('POST', '/api/auth/bootstrap',
     { body: { token: 'wrong', email: 'chris@example.com', password: 'correct-horse-battery' } })
@@ -107,6 +119,12 @@ test('bootstrap disables itself once an owner exists', async () => {
   const r = await call('POST', '/api/auth/bootstrap',
     { body: { token: 'bootstrap-secret-for-tests', email: 'second@example.com', password: 'another-long-password' } })
   assert.equal(r.status, 404)
+})
+
+test('once an owner exists the deployment stops offering setup', async () => {
+  const r = await call('GET', '/api/auth/setup')
+  assert.equal(r.json.needs_setup, false)
+  assert.equal(r.json.token_configured, false, 'nothing about the env var leaks after setup')
 })
 
 /* ── 2. Unauthenticated access ───────────────────────────────────────── */

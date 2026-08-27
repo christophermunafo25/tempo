@@ -890,3 +890,347 @@ a { color: inherit; text-decoration: none; }
   .board { grid-template-columns: repeat(2, 1fr); }
   .ts-row { grid-template-columns: minmax(120px, 1fr) 70px 70px 70px minmax(140px, 1.6fr) minmax(100px, 1fr); }
 }
+
+/* ── Auth ─────────────────────────────────────────────────────────────── */
+
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  background: var(--bg);
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: var(--space-10) var(--space-8) var(--space-8);
+}
+/* The brand block is tuned for the sidebar's left padding; centre it here. */
+.auth-card .brand {
+  padding: 0;
+  margin-bottom: var(--space-2);
+  justify-content: center;
+}
+
+.auth-submit { width: 100%; padding: 12px 18px; }
+
+/* Reserves its line height whether or not there's an error, so the button
+   doesn't jump when a failed attempt comes back. */
+.auth-error {
+  min-height: 18px;
+  margin: calc(var(--space-2) * -1) 0 0;
+  font-size: 13px;
+  line-height: 18px;
+  color: #e94560;
+}
+
+.auth-hint {
+  font-size: 12px;
+  font-weight: 300;
+  color: var(--text-3);
+}
+
+.auth-note {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 300;
+  line-height: 1.55;
+  color: var(--text-2);
+  text-align: center;
+}
+
+.auth-splash {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.auth-splash .brand-dot {
+  width: 12px; height: 12px;
+  animation: splash-pulse 1.1s var(--ease-brand) infinite;
+}
+@keyframes splash-pulse {
+  0%, 100% { opacity: 0.25; transform: scale(0.85); }
+  50%      { opacity: 1;    transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-splash .brand-dot { animation: none; opacity: 0.6; }
+}
+
+.whoami {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.whoami-email {
+  font-size: 12px;
+  font-weight: 300;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.signout {
+  align-self: flex-start;
+  font-family: var(--font-mono);
+  font-size: var(--label-size-sm);
+  letter-spacing: var(--label-tracking);
+  text-transform: uppercase;
+  color: var(--text-3);
+  transition: color var(--dur-fast) ease-out;
+}
+.signout:hover { color: var(--accent); }
+
+/* ── Portal (owner management) ────────────────────────────────────────── */
+
+.portal-list { display: flex; flex-direction: column; gap: var(--space-5); }
+
+.portal-card { display: flex; flex-direction: column; gap: var(--space-5); }
+
+.portal-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+}
+.portal-company {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 17px;
+  font-weight: 500;
+}
+
+.portal-toggles { display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-end; }
+.portal-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 13px;
+  font-weight: 300;
+  color: var(--text-2);
+}
+.portal-toggle em { color: var(--text-4); font-style: normal; font-size: 12px; }
+
+.portal-table { width: 100%; border-collapse: collapse; }
+.portal-table th {
+  font-family: var(--font-mono);
+  font-size: var(--label-size-sm);
+  letter-spacing: var(--label-tracking);
+  text-transform: uppercase;
+  color: var(--text-3);
+  font-weight: 400;
+  text-align: left;
+  padding: 0 var(--space-3) var(--space-2) 0;
+}
+.portal-table td {
+  padding: var(--space-3) var(--space-3) var(--space-3) 0;
+  border-top: 1px solid var(--hairline);
+  font-size: 14px;
+  font-weight: 300;
+  vertical-align: middle;
+}
+.portal-table tr.is-revoked td,
+.portal-table tr.is-unpublished td { opacity: 0.5; }
+
+.portal-contact { font-weight: 400; }
+.portal-contact-name { font-size: 12px; color: var(--text-3); }
+.portal-dim { color: var(--text-3); font-size: 13px; font-weight: 300; }
+.portal-brief {
+  font-size: 14px;
+  font-weight: 300;
+  line-height: 1.55;
+  color: var(--text-2);
+  padding: var(--space-4);
+  background: var(--surface-2);
+  border-radius: var(--radius-input);
+}
+
+.portal-actions { display: flex; gap: var(--space-2); justify-content: flex-end; }
+.portal-danger { color: #e94560; }
+
+.portal-invite { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.portal-invite .input { flex: 1; min-width: 180px; }
+
+.portal-linkbox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--radius-input);
+}
+.portal-linkrow { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+.portal-linkrow .input { flex: 1; min-width: 220px; font-size: 12px; }
+
+.portal-publish-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-5);
+}
+.portal-publish-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
+.portal-decline { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.portal-decline .input { flex: 1; min-width: 200px; }
+
+.tab-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 10px;
+}
+.seg-btn.active .tab-badge { background: var(--btn-fg); color: var(--btn-bg); }
+
+/* ── Client portal ────────────────────────────────────────────────────── */
+
+.portal-whose {
+  padding: 0 var(--space-6);
+  margin: calc(var(--space-12) * -1 + var(--space-3)) 0 var(--space-10);
+  font-size: 13px;
+  font-weight: 300;
+  color: var(--text-3);
+}
+
+.portal-meter {
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-3);
+  overflow: hidden;
+  margin-top: var(--space-3);
+}
+.portal-meter span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: var(--radius-pill);
+  transition: width var(--dur-base) var(--ease-brand);
+}
+
+.portal-filter { display: flex; flex-direction: column; gap: var(--space-1); }
+.portal-filter .input { min-width: 150px; }
+
+.portal-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  padding-top: var(--space-5);
+}
+
+.portal-project { padding-top: var(--space-4); }
+.portal-project + .portal-project { border-top: 1px solid var(--hairline); }
+.portal-project-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.portal-footnote {
+  margin-top: var(--space-6);
+  font-size: 12px;
+  font-weight: 300;
+  color: var(--text-4);
+}
+
+.portal-center { text-align: center; }
+
+.portal-total td { font-weight: 400; border-top-color: var(--hairline-strong); }
+
+/* ── Comment threads ──────────────────────────────────────────────────── */
+
+.thread { display: flex; flex-direction: column; gap: var(--space-5); }
+
+.thread-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-height: 420px;
+  overflow-y: auto;
+}
+.thread-item {
+  padding: var(--space-4);
+  border-radius: var(--radius-input);
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+}
+/* Your own messages sit visually apart without a chat-bubble alignment
+   gimmick, which reads badly once a message runs long. */
+.thread-item.is-mine { background: var(--accent-soft); border-color: transparent; }
+
+.thread-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+.thread-author { font-size: 13px; font-weight: 500; }
+.thread-when { font-size: 11px; color: var(--text-4); }
+.thread-body {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 300;
+  line-height: 1.55;
+  white-space: pre-wrap;   /* honour the author's line breaks, nothing more */
+  overflow-wrap: anywhere;
+}
+.thread-body.is-deleted { color: var(--text-4); font-style: italic; }
+
+.thread-form { display: flex; flex-direction: column; gap: var(--space-3); }
+.thread-actions { display: flex; align-items: center; gap: var(--space-3); }
+.thread-actions .spacer { flex: 1; }
+
+.portal-thread-head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  width: 100%;
+  text-align: left;
+}
+
+.portal-back { align-self: flex-start; margin-bottom: var(--space-4); }
+.portal-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-8);
+}
+.portal-detail-title { margin-bottom: 0; }
+
+.portal-project-link { display: block; color: inherit; }
+.portal-project-link:hover .portal-company { color: var(--accent); }
+
+.portal-edit { display: flex; flex-direction: column; gap: var(--space-4); }
+
+.portal-subtasks { list-style: none; display: flex; flex-direction: column; gap: var(--space-3); }
+.portal-subtasks li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 14px;
+  font-weight: 300;
+}
+/* Read-only: this is Chris's task breakdown, not the client's to tick off. */
+.portal-subtasks .checkbox { pointer-events: none; }
+.portal-subtasks .is-done { color: var(--text-3); text-decoration: line-through; }
+
+.portal-links { list-style: none; display: flex; flex-wrap: wrap; gap: var(--space-2); }

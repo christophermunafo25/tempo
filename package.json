@@ -10,7 +10,8 @@
     "server": "node server/index.js",
     "client": "vite",
     "build": "vite build",
-    "backup": "node scripts/backup.js"
+    "backup": "node scripts/backup.js",
+    "test": "node --test \"server/**/*.test.js\""
   },
   "dependencies": {
     "@libsql/client": "^0.17.4",

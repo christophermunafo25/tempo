@@ -7,9 +7,38 @@ import Dashboard from './screens/Dashboard.jsx'
 import Board from './screens/Board.jsx'
 import Timesheets from './screens/Timesheets.jsx'
 import Expenses from './screens/Expenses.jsx'
+import Login from './screens/Login.jsx'
+import SetPassword from './screens/SetPassword.jsx'
+import Portal from './screens/Portal.jsx'
+import Forgot from './screens/Forgot.jsx'
+import PortalApp from './portal/PortalApp.jsx'
+import PortalOverview from './portal/screens/Overview.jsx'
+import PortalHours from './portal/screens/Hours.jsx'
+import PortalProjects from './portal/screens/Projects.jsx'
+import PortalProjectDetail from './portal/screens/ProjectDetail.jsx'
+import { AuthProvider } from './auth.jsx'
 import './styles/app.css'
 
 const router = createBrowserRouter([
+  // Outside App on purpose: the login screen must not render the owner nav.
+  { path: '/login', element: <Login /> },
+  // Invite and reset links land here. Public: the whole point is that the
+  // recipient has no account yet.
+  { path: '/portal/set-password', element: <SetPassword /> },
+  { path: '/forgot', element: <Forgot /> },
+  // The client's own shell. A sibling of App, never a child of it, so the
+  // owner nav is not merely hidden from clients — it is never in their tree.
+  {
+    path: '/portal',
+    element: <PortalApp />,
+    children: [
+      { index: true, element: <PortalOverview /> },
+      { path: 'hours', element: <PortalHours /> },
+      { path: 'projects', element: <PortalProjects /> },
+      { path: 'projects/:id', element: <PortalProjectDetail /> },
+      { path: '*', element: <Navigate to="/portal" replace /> },
+    ],
+  },
   {
     path: '/',
     element: <App />,
@@ -19,6 +48,9 @@ const router = createBrowserRouter([
       { path: 'board', element: <Board /> },
       { path: 'timesheets', element: <Timesheets /> },
       { path: 'expenses', element: <Expenses /> },
+      // /access, not /portal: the client shell owns /portal, and two routes
+      // matching the same path silently hid this screen.
+      { path: 'access', element: <Portal /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
   },
@@ -26,6 +58,8 @@ const router = createBrowserRouter([
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <RouterProvider router={router} future={{ v7_startTransition: true }} />
+    <AuthProvider>
+      <RouterProvider router={router} future={{ v7_startTransition: true }} />
+    </AuthProvider>
   </React.StrictMode>,
 )

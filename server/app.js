@@ -3,6 +3,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { q, q1, withTx, ready, ensureReady, dbError } from './db.js'
+import { h, httpError } from './http.js'
+import { gate } from './gate.js'
+import authRoutes from './routes/auth.js'
+import accessRoutes from './routes/access.js'
+import portalRoutes from './routes/portal.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ON_VERCEL = !!process.env.VERCEL
@@ -11,12 +16,6 @@ export { ready }
 
 const nowISO = () => new Date().toISOString()
 const STATUSES = ['in_queue', 'on_deck', 'in_progress', 'questions', 'sent_for_review', 'complete']
-
-function httpError(code, message) {
-  const e = new Error(message)
-  e.status = code
-  return e
-}
 
 async function applyStatus(conn, project, status, questionText, source) {
   if (!STATUSES.includes(status)) throw httpError(400, `invalid status: ${status}`)
@@ -43,10 +42,10 @@ async function withExtras(conn, project) {
 /* ── App ────────────────────────────────────────────────────────────────── */
 
 const app = express()
+// Vercel terminates TLS upstream: without this req.ip is the proxy and the
+// secure-cookie decision reads the wrong protocol.
+app.set('trust proxy', 1)
 app.use(express.json())
-
-// Express 4 doesn't catch async errors — every handler goes through this.
-const h = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next)
 
 app.use('/api', h(async (req, res, next) => {
   if (dbError) return res.status(503).json({ error: dbError })
@@ -57,6 +56,14 @@ app.use('/api', h(async (req, res, next) => {
   }
   next()
 }))
+
+// Deny by default. Mounted above every route below, so anything added later
+// is owner-only unless it is physically moved under /api/portal. See gate.js.
+app.use('/api', gate)
+
+app.use('/api/auth', authRoutes)
+app.use('/api/portal', portalRoutes)
+app.use('/api/access', accessRoutes)
 
 /* ── Clients ─────────────────────────────────────────────────────────── */
 
@@ -87,7 +94,10 @@ app.patch('/api/clients/:id', h(async (req, res) => {
 
 app.get('/api/projects', h(async (req, res) => {
   const { client_id, include_complete } = req.query
-  let sql = 'SELECT * FROM projects WHERE 1=1'
+  // portal_request IS NULL keeps client-submitted requests out of the owner's
+  // workflow until they're accepted. Every project that predates the portal has
+  // it NULL, so this excludes nothing that existed before.
+  let sql = 'SELECT * FROM projects WHERE portal_request IS NULL'
   const args = []
   if (client_id) { sql += ' AND client_id = ?'; args.push(client_id) }
   if (!include_complete) sql += " AND status != 'complete'"
@@ -229,7 +239,7 @@ app.get('/api/prefill', h(async (req, res) => {
   const entries = await q(null, `
     SELECT e.project_id, e.summary FROM session_entries e
     JOIN projects p ON p.id = e.project_id
-    WHERE e.session_id = ? AND p.status != 'complete'
+    WHERE e.session_id = ? AND p.status != 'complete' AND p.portal_request IS NULL
     ORDER BY e.id`, [last.id])
   res.json(await Promise.all(entries.map(async (e) => {
     const project = await q1(null, 'SELECT * FROM projects WHERE id = ?', [e.project_id])
@@ -324,7 +334,8 @@ app.get('/api/board', h(async (req, res) => {
   let sql = `
     SELECT p.*, c.name AS client_name, c.color_accent FROM projects p
     JOIN clients c ON c.id = p.client_id
-    WHERE (p.status != 'complete' OR p.completed_at >= ?)`
+    WHERE (p.status != 'complete' OR p.completed_at >= ?)
+      AND p.portal_request IS NULL`
   const args = [cutoff]
   if (client_id) { sql += ' AND p.client_id = ?'; args.push(client_id) }
   sql += ' ORDER BY p.created_at'
@@ -353,7 +364,7 @@ app.get('/api/archive', h(async (req, res) => {
   let sql = `
     SELECT p.*, c.name AS client_name, c.color_accent FROM projects p
     JOIN clients c ON c.id = p.client_id
-    WHERE p.status = 'complete'`
+    WHERE p.status = 'complete' AND p.portal_request IS NULL`
   const args = []
   if (client_id) { sql += ' AND p.client_id = ?'; args.push(client_id) }
   sql += ' ORDER BY p.completed_at DESC'

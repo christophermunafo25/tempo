@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Navigate, Outlet } from 'react-router-dom'
+import { useAuth } from './auth.jsx'
+import { Splash } from './screens/Login.jsx'
 
 const NAV = [
   { to: '/', label: 'Clock', end: true },
@@ -10,12 +12,20 @@ const NAV = [
 ]
 
 export default function App() {
+  const { user, loading, signOut } = useAuth()
   const [theme, setTheme] = useState(() => localStorage.getItem('tempo-theme') || 'light')
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
     localStorage.setItem('tempo-theme', theme)
   }, [theme])
+
+  if (loading) return <Splash />
+  if (!user) return <Navigate to="/login" replace />
+  // Client contacts have no business in this shell — its nav is Expenses and
+  // Board. Their own shell arrives with the portal; until then they get a
+  // dead end rather than a redirect loop into a route that doesn't exist.
+  if (user.role !== 'owner') return <PortalPending onSignOut={signOut} />
 
   return (
     <div className="app">
@@ -30,6 +40,10 @@ export default function App() {
           ))}
         </nav>
         <div className="sidebar-foot">
+          <div className="whoami">
+            <span className="whoami-email" title={user.email}>{user.email}</span>
+            <button className="signout" onClick={signOut}>Sign out</button>
+          </div>
           <button
             className="theme-toggle"
             onClick={() => setTheme(t => t === 'light' ? 'dark' : 'light')}
@@ -43,6 +57,21 @@ export default function App() {
       <main className="main">
         <Outlet />
       </main>
+    </div>
+  )
+}
+
+function PortalPending({ onSignOut }) {
+  return (
+    <div className="auth-page">
+      <div className="auth-card card">
+        <div className="brand"><span className="brand-dot" />TEMPO</div>
+        <p className="auth-note">
+          Your client portal isn’t available yet. You’ll be able to sign in here
+          once it’s switched on for your company.
+        </p>
+        <button className="btn btn-outline auth-submit" onClick={onSignOut}>Sign out</button>
+      </div>
     </div>
   )
 }

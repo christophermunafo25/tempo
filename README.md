@@ -54,8 +54,79 @@ fix is a dashboard click, not a redeploy:
 
 Restoring keeps the same connection string, so `DATABASE_URL` stays valid.
 
-Since this holds billing data, enable **Settings → Deployment Protection →
-Vercel Authentication** so only you can open the deployed app.
+## Deployment Protection and the client portal
+
+Deployment Protection gates the *whole* deployment, which is why it can't stay
+on once clients need to sign in: it would block them at the door before the
+app ever loads. Turning it off makes every URL on the deployment publicly
+reachable, so **application-level authorization becomes the only barrier that
+exists** — `/api/expenses` is personal overhead and `/api/clients` lists every
+company, and after that switch nothing but the auth gate keeps them private.
+
+Do not turn it off until the auth boundary is deployed and `npm test` passes
+against the deployment's own code. In order:
+
+1. Deploy the code that includes `server/gate.js`.
+2. Create the owner account (below) and confirm sign-in works.
+3. Only then: **Settings → Deployment Protection → Vercel Authentication →
+   Disabled**.
+
+Preview deployments have no `DATABASE_URL` and still answer 503, so they are
+not a second exposed surface.
+
+### The auth boundary in one paragraph
+
+`server/gate.js` mounts once at `/api`, above every route, and sorts each
+request by its first path segment: `/api/auth/*` is public, `/api/portal/*` is
+for signed-in client contacts scoped to their own company, and **everything
+else requires the owner**. The owner arm is the default, so a route added
+anywhere under `/api` later is owner-only automatically — opting one into
+client access means physically moving it under `/api/portal`. A client session
+asking for an owner route gets 404, not 403, so it learns nothing about what
+else is hosted here.
+
+### First-run owner account
+
+Bootstrap is self-disabling: it needs both an env var *and* an empty owner
+table, so a forgotten variable can't reopen it later.
+
+1. Vercel → **Settings → Environment Variables** → add
+   `PORTAL_BOOTSTRAP_TOKEN` = a long random string. Redeploy.
+2. Create the account:
+
+   ```bash
+   curl -X POST https://<your-deployment>/api/auth/bootstrap \
+     -H 'Content-Type: application/json' \
+     -H 'Origin: https://<your-deployment>' \
+     -d '{"token":"<PORTAL_BOOTSTRAP_TOKEN>","email":"you@example.com","password":"<a long password>","name":"Chris"}'
+   ```
+
+3. Sign in, confirm the app loads.
+4. **Delete `PORTAL_BOOTSTRAP_TOKEN`** and redeploy. The route answers 404
+   from here on regardless, but leaving the secret around serves no purpose.
+
+Passwords are hashed with `node:crypto` scrypt. Session tokens are 256-bit
+random values; only their SHA-256 hash is stored, so the database never holds
+anything that could be replayed as a cookie. Sessions are validated by lookup
+rather than signature, which is what makes revoking a contact take effect on
+their very next request.
+
+Run the same bootstrap against `http://localhost:3001` for local development —
+there is deliberately no dev-mode auth bypass, since that branch is exactly
+the kind that eventually ships.
+
+## Tests
+
+```bash
+npm test           # node --test, no test dependencies
+```
+
+Covers the security boundary only: that unauthenticated callers get 401 on
+every `/api` route, that a client session gets 404 and never data on owner
+routes, that revoked cookies die immediately, that expired invite tokens can't
+be redeemed, and that the owner's own endpoints are unchanged. The suite
+writes to a throwaway directory via `TEMPO_DATA_DIR` and never touches
+`data/tempo.db`.
 
 ## Run locally
 

@@ -7,9 +7,13 @@ import Dashboard from './screens/Dashboard.jsx'
 import Board from './screens/Board.jsx'
 import Timesheets from './screens/Timesheets.jsx'
 import Expenses from './screens/Expenses.jsx'
+import Login from './screens/Login.jsx'
+import { AuthProvider } from './auth.jsx'
 import './styles/app.css'
 
 const router = createBrowserRouter([
+  // Outside App on purpose: the login screen must not render the owner nav.
+  { path: '/login', element: <Login /> },
   {
     path: '/',
     element: <App />,
@@ -26,6 +30,8 @@ const router = createBrowserRouter([
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <RouterProvider router={router} future={{ v7_startTransition: true }} />
+    <AuthProvider>
+      <RouterProvider router={router} future={{ v7_startTransition: true }} />
+    </AuthProvider>
   </React.StrictMode>,
 )

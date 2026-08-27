@@ -3,6 +3,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { q, q1, withTx, ready, ensureReady, dbError } from './db.js'
+import { h, httpError } from './http.js'
+import { gate } from './gate.js'
+import authRoutes from './routes/auth.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ON_VERCEL = !!process.env.VERCEL
@@ -11,12 +14,6 @@ export { ready }
 
 const nowISO = () => new Date().toISOString()
 const STATUSES = ['in_queue', 'on_deck', 'in_progress', 'questions', 'sent_for_review', 'complete']
-
-function httpError(code, message) {
-  const e = new Error(message)
-  e.status = code
-  return e
-}
 
 async function applyStatus(conn, project, status, questionText, source) {
   if (!STATUSES.includes(status)) throw httpError(400, `invalid status: ${status}`)
@@ -43,10 +40,10 @@ async function withExtras(conn, project) {
 /* ── App ────────────────────────────────────────────────────────────────── */
 
 const app = express()
+// Vercel terminates TLS upstream: without this req.ip is the proxy and the
+// secure-cookie decision reads the wrong protocol.
+app.set('trust proxy', 1)
 app.use(express.json())
-
-// Express 4 doesn't catch async errors — every handler goes through this.
-const h = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next)
 
 app.use('/api', h(async (req, res, next) => {
   if (dbError) return res.status(503).json({ error: dbError })
@@ -57,6 +54,12 @@ app.use('/api', h(async (req, res, next) => {
   }
   next()
 }))
+
+// Deny by default. Mounted above every route below, so anything added later
+// is owner-only unless it is physically moved under /api/portal. See gate.js.
+app.use('/api', gate)
+
+app.use('/api/auth', authRoutes)
 
 /* ── Clients ─────────────────────────────────────────────────────────── */
 

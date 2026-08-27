@@ -890,3 +890,98 @@ a { color: inherit; text-decoration: none; }
   .board { grid-template-columns: repeat(2, 1fr); }
   .ts-row { grid-template-columns: minmax(120px, 1fr) 70px 70px 70px minmax(140px, 1.6fr) minmax(100px, 1fr); }
 }
+
+/* ── Auth ─────────────────────────────────────────────────────────────── */
+
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  background: var(--bg);
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: var(--space-10) var(--space-8) var(--space-8);
+}
+/* The brand block is tuned for the sidebar's left padding; centre it here. */
+.auth-card .brand {
+  padding: 0;
+  margin-bottom: var(--space-2);
+  justify-content: center;
+}
+
+.auth-submit { width: 100%; padding: 12px 18px; }
+
+/* Reserves its line height whether or not there's an error, so the button
+   doesn't jump when a failed attempt comes back. */
+.auth-error {
+  min-height: 18px;
+  margin: calc(var(--space-2) * -1) 0 0;
+  font-size: 13px;
+  line-height: 18px;
+  color: #e94560;
+}
+
+.auth-hint {
+  font-size: 12px;
+  font-weight: 300;
+  color: var(--text-3);
+}
+
+.auth-note {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 300;
+  line-height: 1.55;
+  color: var(--text-2);
+  text-align: center;
+}
+
+.auth-splash {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.auth-splash .brand-dot {
+  width: 12px; height: 12px;
+  animation: splash-pulse 1.1s var(--ease-brand) infinite;
+}
+@keyframes splash-pulse {
+  0%, 100% { opacity: 0.25; transform: scale(0.85); }
+  50%      { opacity: 1;    transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-splash .brand-dot { animation: none; opacity: 0.6; }
+}
+
+.whoami {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.whoami-email {
+  font-size: 12px;
+  font-weight: 300;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.signout {
+  align-self: flex-start;
+  font-family: var(--font-mono);
+  font-size: var(--label-size-sm);
+  letter-spacing: var(--label-tracking);
+  text-transform: uppercase;
+  color: var(--text-3);
+  transition: color var(--dur-fast) ease-out;
+}
+.signout:hover { color: var(--accent); }

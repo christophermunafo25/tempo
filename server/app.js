@@ -6,6 +6,7 @@ import { q, q1, withTx, ready, ensureReady, dbError } from './db.js'
 import { h, httpError } from './http.js'
 import { gate } from './gate.js'
 import authRoutes from './routes/auth.js'
+import accessRoutes from './routes/access.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ON_VERCEL = !!process.env.VERCEL
@@ -60,6 +61,7 @@ app.use('/api', h(async (req, res, next) => {
 app.use('/api', gate)
 
 app.use('/api/auth', authRoutes)
+app.use('/api/access', accessRoutes)
 
 /* ── Clients ─────────────────────────────────────────────────────────── */
 
@@ -90,7 +92,10 @@ app.patch('/api/clients/:id', h(async (req, res) => {
 
 app.get('/api/projects', h(async (req, res) => {
   const { client_id, include_complete } = req.query
-  let sql = 'SELECT * FROM projects WHERE 1=1'
+  // portal_request IS NULL keeps client-submitted requests out of the owner's
+  // workflow until they're accepted. Every project that predates the portal has
+  // it NULL, so this excludes nothing that existed before.
+  let sql = 'SELECT * FROM projects WHERE portal_request IS NULL'
   const args = []
   if (client_id) { sql += ' AND client_id = ?'; args.push(client_id) }
   if (!include_complete) sql += " AND status != 'complete'"
@@ -232,7 +237,7 @@ app.get('/api/prefill', h(async (req, res) => {
   const entries = await q(null, `
     SELECT e.project_id, e.summary FROM session_entries e
     JOIN projects p ON p.id = e.project_id
-    WHERE e.session_id = ? AND p.status != 'complete'
+    WHERE e.session_id = ? AND p.status != 'complete' AND p.portal_request IS NULL
     ORDER BY e.id`, [last.id])
   res.json(await Promise.all(entries.map(async (e) => {
     const project = await q1(null, 'SELECT * FROM projects WHERE id = ?', [e.project_id])
@@ -327,7 +332,8 @@ app.get('/api/board', h(async (req, res) => {
   let sql = `
     SELECT p.*, c.name AS client_name, c.color_accent FROM projects p
     JOIN clients c ON c.id = p.client_id
-    WHERE (p.status != 'complete' OR p.completed_at >= ?)`
+    WHERE (p.status != 'complete' OR p.completed_at >= ?)
+      AND p.portal_request IS NULL`
   const args = [cutoff]
   if (client_id) { sql += ' AND p.client_id = ?'; args.push(client_id) }
   sql += ' ORDER BY p.created_at'
@@ -356,7 +362,7 @@ app.get('/api/archive', h(async (req, res) => {
   let sql = `
     SELECT p.*, c.name AS client_name, c.color_accent FROM projects p
     JOIN clients c ON c.id = p.client_id
-    WHERE p.status = 'complete'`
+    WHERE p.status = 'complete' AND p.portal_request IS NULL`
   const args = []
   if (client_id) { sql += ' AND p.client_id = ?'; args.push(client_id) }
   sql += ' ORDER BY p.completed_at DESC'

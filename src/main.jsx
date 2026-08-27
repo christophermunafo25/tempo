@@ -8,12 +8,17 @@ import Board from './screens/Board.jsx'
 import Timesheets from './screens/Timesheets.jsx'
 import Expenses from './screens/Expenses.jsx'
 import Login from './screens/Login.jsx'
+import SetPassword from './screens/SetPassword.jsx'
+import Portal from './screens/Portal.jsx'
 import { AuthProvider } from './auth.jsx'
 import './styles/app.css'
 
 const router = createBrowserRouter([
   // Outside App on purpose: the login screen must not render the owner nav.
   { path: '/login', element: <Login /> },
+  // Invite and reset links land here. Public: the whole point is that the
+  // recipient has no account yet.
+  { path: '/portal/set-password', element: <SetPassword /> },
   {
     path: '/',
     element: <App />,
@@ -23,6 +28,7 @@ const router = createBrowserRouter([
       { path: 'board', element: <Board /> },
       { path: 'timesheets', element: <Timesheets /> },
       { path: 'expenses', element: <Expenses /> },
+      { path: 'portal', element: <Portal /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
   },

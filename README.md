@@ -115,6 +115,37 @@ Run the same bootstrap against `http://localhost:3001` for local development —
 there is deliberately no dev-mode auth bypass, since that branch is exactly
 the kind that eventually ships.
 
+## Giving a client access
+
+Everything below lives on the **Portal** screen.
+
+**Access** — one card per company. Invite a contact by email and TEMPO creates
+a passwordless account, switches that company's portal on, and hands you a
+one-time link. **There is no email transport**, so you send that link yourself,
+however you already talk to them. It works once and expires in 7 days.
+*Resend* replaces it, which kills the previous link. Once they have a password
+the button becomes *Reset link*, for when they're locked out.
+
+Each person gets their own login, so comments and audit entries are attributed
+by name. *Revoke* is soft: the row and its history stay, live cookies die on
+the contact's next request, and outstanding links are burned. *Restore* undoes
+it.
+
+The *Show rates* toggle is deliberately labelled "not wired up" — there is no
+rate column on clients yet, so the flag currently gates nothing.
+
+**Publishing** — nothing is visible to a client until it is published, and
+every session logged before the portal existed defaults to hidden. Pick a
+company and a week, then publish the whole week or tick individual sessions.
+Unpublishing takes something back out of view.
+
+**Requests** — projects a client submitted. They are real `projects` rows from
+the moment they're created, but they stay out of the Board, Archive, project
+list and clock-out prefill until you *Accept* them. Accepting records a
+`status_events` row with `source='accepted'` so the project's history shows
+where it came from. *Decline* is soft, takes a reason the client will see, and
+never deletes the row.
+
 ## Tests
 
 ```bash

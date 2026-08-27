@@ -7,6 +7,7 @@ import { h, httpError } from './http.js'
 import { gate } from './gate.js'
 import authRoutes from './routes/auth.js'
 import accessRoutes from './routes/access.js'
+import portalRoutes from './routes/portal.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ON_VERCEL = !!process.env.VERCEL
@@ -61,6 +62,7 @@ app.use('/api', h(async (req, res, next) => {
 app.use('/api', gate)
 
 app.use('/api/auth', authRoutes)
+app.use('/api/portal', portalRoutes)
 app.use('/api/access', accessRoutes)
 
 /* ── Clients ─────────────────────────────────────────────────────────── */

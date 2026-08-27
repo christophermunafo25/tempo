@@ -1093,3 +1093,61 @@ a { color: inherit; text-decoration: none; }
   font-size: 10px;
 }
 .seg-btn.active .tab-badge { background: var(--btn-fg); color: var(--btn-bg); }
+
+/* ── Client portal ────────────────────────────────────────────────────── */
+
+.portal-whose {
+  padding: 0 var(--space-6);
+  margin: calc(var(--space-12) * -1 + var(--space-3)) 0 var(--space-10);
+  font-size: 13px;
+  font-weight: 300;
+  color: var(--text-3);
+}
+
+.portal-meter {
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-3);
+  overflow: hidden;
+  margin-top: var(--space-3);
+}
+.portal-meter span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: var(--radius-pill);
+  transition: width var(--dur-base) var(--ease-brand);
+}
+
+.portal-filter { display: flex; flex-direction: column; gap: var(--space-1); }
+.portal-filter .input { min-width: 150px; }
+
+.portal-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  padding-top: var(--space-5);
+}
+
+.portal-project { padding-top: var(--space-4); }
+.portal-project + .portal-project { border-top: 1px solid var(--hairline); }
+.portal-project-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.portal-footnote {
+  margin-top: var(--space-6);
+  font-size: 12px;
+  font-weight: 300;
+  color: var(--text-4);
+}
+
+.portal-center { text-align: center; }
+
+.portal-total td { font-weight: 400; border-top-color: var(--hairline-strong); }

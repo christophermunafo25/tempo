@@ -146,6 +146,50 @@ list and clock-out prefill until you *Accept* them. Accepting records a
 where it came from. *Decline* is soft, takes a reason the client will see, and
 never deletes the row.
 
+## What a client sees
+
+Their own shell at `/portal`, with three screens and none of the owner nav —
+it is a sibling of the main app, not a child, so Clock, Board, Timesheets and
+Expenses are never in a client's route tree at all.
+
+- **Overview** — hours this week against `weekly_hours_target`, hours this
+  month, and recent activity.
+- **Hours** — every published session, filterable by date range and project,
+  paginated, with a CSV export. The export re-runs the same filter through the
+  same query helper the table uses, so the file and the screen cannot disagree.
+- **Projects** — everything for their company, completed included, read-only
+  for now.
+
+What is deliberately withheld, and enforced by tests rather than by care:
+
+- **Unpublished sessions**, everywhere — the list, the totals, the by-project
+  estimate and the CSV.
+- **Anything belonging to another company.** Scope comes from the session, so
+  no portal endpoint takes a `client_id`; passing one changes nothing.
+  Requesting another company's project by id answers 404, never 403.
+- **`question_text` and `status_events`.** A project parked in Questions
+  reports as In Progress. No portal query uses `SELECT *`, and a test scans
+  every portal response for a sentinel question value so a future `SELECT *`
+  fails the suite.
+- **Clock times.** Sessions are reported as a calendar date and a duration.
+  A client learns how long you worked, not which hours of the day.
+
+The by-project figures are an estimate and say so on screen: hours are clocked
+per company, so each session is split evenly across the projects worked on in
+it. Time logged with no project attached appears as `(untagged)` rather than
+being dropped, so the breakdown always reconciles to the total above it.
+
+### TEMPO_TZ
+
+"The day a session belongs to" has to mean one thing. The owner's screens use
+the browser's zone; the portal names one explicitly, because Vercel runs in
+UTC, where the date rolls over in the evening Central time — so an evening
+session would be reported to the client as the following day.
+
+Set `TEMPO_TZ` to an IANA zone (e.g. `America/Chicago`) in the Vercel
+environment variables. It defaults to the server's own zone, which is right
+locally and wrong on Vercel.
+
 ## Tests
 
 ```bash

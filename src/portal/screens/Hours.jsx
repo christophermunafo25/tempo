@@ -6,6 +6,7 @@ import {
 } from '../../time.js'
 import { csvRows, totalHours, totalAmount, hasMoney } from '../csv.js'
 import { hoursWorkbook, workbookFilename } from '../workbook.js'
+import { usePulse } from '../usePulse.js'
 import HoursTable from '../../components/HoursTable.jsx'
 
 const PER_PAGE = 25
@@ -45,6 +46,10 @@ export default function Hours() {
   }, [query, page])
 
   useEffect(() => { load() }, [load])
+
+  // Sessions land in the client's view the moment Chris clocks out, so an open
+  // page keeps itself current instead of going quietly stale.
+  usePulse(() => pget('/pulse').then(p => p.signature), load)
 
   const set = (key, value) => { setFilters(f => ({ ...f, [key]: value })); setPage(1) }
   const applyPreset = (key) => { setFilters(f => ({ ...f, ...presetRange(key) })); setPage(1) }

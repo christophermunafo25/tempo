@@ -304,6 +304,19 @@ app.post('/api/sessions/:id/clock-out', h(async (req, res) => {
       await q(tx, `INSERT INTO session_entries (session_id, project_id, summary, status_at_entry)
         VALUES (?,?,?,?)`, [session.id, project.id, (entry.summary || '').trim(), entry.status])
     }
+
+    // Companies with the portal switched on see a session as soon as it is
+    // clocked out — there is no review step for them by choice. Everyone else
+    // stays unpublished until published by hand. The rate is snapshotted here
+    // for the same reason it is on an explicit publish: this is the moment the
+    // number becomes something the client can budget against.
+    const client = await q1(tx,
+      'SELECT portal_enabled, hourly_rate FROM clients WHERE id = ?', [session.client_id])
+    if (client?.portal_enabled) {
+      await q(tx, `UPDATE sessions SET is_published = 1,
+        rate_applied = CASE WHEN rate_applied IS NULL AND ? > 0 THEN ? ELSE rate_applied END
+        WHERE id = ?`, [client.hourly_rate || 0, client.hourly_rate || 0, session.id])
+    }
   })
   res.json(await q1(null, 'SELECT * FROM sessions WHERE id = ?', [session.id]))
 }))

@@ -331,6 +331,42 @@ and nothing is worse than read-only. Where a recipient will sign in, invite
 them instead — comment threads and project requests need an identified author
 and are absent from share links for exactly that reason.
 
+## Live updates for clients
+
+Clocking out **publishes the session immediately** for any company with the
+portal switched on, and an open client page picks it up on its own within about
+twenty seconds — no reload, no publish step.
+
+That is a deliberate trade: there is no review window for those companies. A
+mistyped summary or a wrong duration is in front of the client before you
+notice it. Unpublishing from **Portal → Publishing** still works, but they may
+already have seen it. Companies without the portal on are unaffected and stay
+manual. The Clock screen marks a session **shared** once it is visible, so you
+can see what went out without opening the client's view.
+
+The rate is snapshotted at clock-out, exactly as it is on an explicit publish.
+
+**What is not exposed:** nothing about work in progress. There is no "currently
+working" indicator and no running timer, because either one would give away
+when you started — elapsed time plus the current time is your start time — and
+clock times deliberately never leave the server.
+
+### How the refresh works
+
+Vercel's serverless functions don't support websockets, and an SSE connection
+would hold a function open for its whole life, billed and capped. So the page
+polls, and everything about it is shaped around making an idle open tab cost
+nothing:
+
+- It polls `/pulse`, which returns a single aggregate row — a count, a max id
+  and two sums — and no data at all. The payload is refetched only when that
+  signature moves.
+- Polling **stops entirely while the tab is hidden** and catches up the moment
+  it comes back, comparing against the baseline from before it was hidden.
+- The signature is built on the same `scopeClause()` as every other read, so it
+  can never report a change the reader is not allowed to see. Unpublished work
+  and other companies' sessions do not move it.
+
 ## Archiving a client
 
 There is no hard delete. **Portal → Access → Archive this company** sets

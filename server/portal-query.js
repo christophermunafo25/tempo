@@ -339,6 +339,30 @@ export async function breakdown(opts) {
   return projects
 }
 
+/* A compact signature of everything in scope, for a page to poll without
+   refetching the payload. One aggregate row: it moves when a session is
+   published or unpublished, when one is added, and when a duration or a rate
+   is edited, which covers every way the client's view can change. Built on the
+   same scopeClause as everything else, so it can never report a change the
+   reader would not be allowed to see. */
+
+export async function pulse(opts) {
+  const { sql, args } = scopeClause(opts)
+  const row = await q1(null, `
+    SELECT COUNT(*) AS n,
+           COALESCE(MAX(s.id), 0) AS max_id,
+           COALESCE(SUM(s.duration_minutes), 0) AS minutes,
+           COALESCE(SUM(s.rate_applied), 0) AS rates
+    FROM sessions s WHERE ${sql}`, args)
+
+  return [
+    Number(row?.n || 0),
+    Number(row?.max_id || 0),
+    Math.round(Number(row?.minutes || 0) * 100),
+    Math.round(Number(row?.rates || 0) * 100),
+  ].join(':')
+}
+
 /* ── Projects ────────────────────────────────────────────────────────────
    Everything for the company, completed included. question_text is not in the
    select list and never will be. */

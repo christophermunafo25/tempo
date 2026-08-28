@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { pget } from '../api.js'
+import { usePulse } from '../usePulse.js'
 import { EmptyState } from '../../components/ui.jsx'
 import { fmtHours, fmtDuration, fmtMoney } from '../../time.js'
 import { projectNames } from '../csv.js'
@@ -9,9 +10,11 @@ export default function Overview() {
   const [summary, setSummary] = useState(null)
   const [error, setError] = useState('')
 
-  useEffect(() => {
+  const load = useCallback(() => {
     pget('/summary').then(setSummary).catch(e => setError(e.message))
   }, [])
+  useEffect(() => { load() }, [load])
+  usePulse(() => pget('/pulse').then(p => p.signature), load)
 
   if (error) return <div className="screen"><p className="field-error">{error}</p></div>
   if (!summary) return <div className="screen" />

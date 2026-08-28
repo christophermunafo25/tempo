@@ -13,7 +13,7 @@ import {
   resolveRange, localToday, localWeekStart, localMonthStart, startOfLocalDay,
   addLocalDays, portalTz, listProjectsFor, projectDetail, unreadTotal,
   listComments, addComment, markRead, recordRevision, portalProject, validComment,
-  summaryFor, moneyPolicy,
+  summaryFor, moneyPolicy, pulse,
 } from '../portal-query.js'
 
 const router = express.Router()
@@ -88,6 +88,11 @@ router.get('/summary', h(async (req, res) => {
     unreadTotal(clientId, req.portalUser.id),
   ])
   res.json({ ...summary, unread_comments: unread })
+}))
+
+// Polled by an open page. Deliberately tiny: one aggregate row, no payload.
+router.get('/pulse', h(async (req, res) => {
+  res.json({ signature: await pulse({ clientId: scopeOf(req) }) })
 }))
 
 /* ── Hours ───────────────────────────────────────────────────────────── */

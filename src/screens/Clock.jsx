@@ -169,6 +169,12 @@ export default function Clock() {
             </div>
             <span className="mono">{fmtDuration(s.duration_minutes)}</span>
             <span className="mono">{fmtTime(s.clock_in)} – {fmtTime(s.clock_out)}</span>
+            {/* Companies with the portal on see a session the moment it is
+                clocked out, so say so here rather than leaving it to be
+                discovered. Unpublish from Portal → Publishing. */}
+            {!!s.is_published && (
+              <span className="shared-mark" title={`Visible to ${s.client_name} now`}>shared</span>
+            )}
             <button className="st-ctl" style={{ textTransform: 'none', letterSpacing: 0 }}
               aria-label={`Edit ${s.client_name} session times`}
               onClick={() => setEditSession(s)}>

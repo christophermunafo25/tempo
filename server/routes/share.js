@@ -9,6 +9,7 @@ import { requireShareLink, shareScope } from '../share.js'
 import { audit } from '../auth.js'
 import {
   listSessions, breakdown, listProjects, ownedProject, resolveRange, summaryFor, moneyPolicy,
+  pulse,
 } from '../portal-query.js'
 
 const router = express.Router()
@@ -59,6 +60,10 @@ function pageParams(req) {
 
 router.get('/:token/summary', h(async (req, res) => {
   res.json(await summaryFor(shareScope(req), await readOptions(req)))
+}))
+
+router.get('/:token/pulse', h(async (req, res) => {
+  res.json({ signature: await pulse({ clientId: shareScope(req) }) })
 }))
 
 router.get('/:token/sessions', h(async (req, res) => {

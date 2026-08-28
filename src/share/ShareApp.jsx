@@ -7,6 +7,7 @@ import {
 } from '../time.js'
 import { csvRows, totalHours, totalAmount, hasMoney } from '../portal/csv.js'
 import { hoursWorkbook, workbookFilename } from '../portal/workbook.js'
+import { usePulse } from '../portal/usePulse.js'
 import HoursTable from '../components/HoursTable.jsx'
 
 const PER_PAGE = 25
@@ -57,6 +58,13 @@ export default function ShareApp() {
   }, [token, query, page, fail])
 
   useEffect(() => { load() }, [load])
+
+  const refresh = useCallback(() => {
+    shareGet(token, '/summary').then(setSummary).catch(fail)
+    load()
+  }, [token, load, fail])
+
+  usePulse(() => shareGet(token, '/pulse').then(p => p.signature), refresh)
 
   const set = (key, value) => { setFilters(f => ({ ...f, [key]: value })); setPage(1) }
   const applyPreset = (key) => {

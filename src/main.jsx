@@ -16,6 +16,7 @@ import PortalOverview from './portal/screens/Overview.jsx'
 import PortalHours from './portal/screens/Hours.jsx'
 import PortalProjects from './portal/screens/Projects.jsx'
 import PortalProjectDetail from './portal/screens/ProjectDetail.jsx'
+import ShareApp from './share/ShareApp.jsx'
 import { AuthProvider } from './auth.jsx'
 import './styles/app.css'
 
@@ -26,6 +27,9 @@ const router = createBrowserRouter([
   // recipient has no account yet.
   { path: '/portal/set-password', element: <SetPassword /> },
   { path: '/forgot', element: <Forgot /> },
+  // No account, no session, no nav. A sibling of both shells so neither the
+  // owner's navigation nor the client portal's exists in this tree at all.
+  { path: '/s/:token', element: <ShareApp /> },
   // The client's own shell. A sibling of App, never a child of it, so the
   // owner nav is not merely hidden from clients — it is never in their tree.
   {

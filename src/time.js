@@ -123,6 +123,52 @@ export const monthlyOf = (e) =>
     : 0
 export const annualOf = (e) => e.cadence === 'fixed' ? e.amount : monthlyOf(e) * 12
 
+/* Quick ranges for the hours filters. "What did he cost me in Q2" is the
+   question a client actually arrives with, and picking two dates by hand is a
+   poor substitute for asking it. Shared so the portal and a share link can't
+   come to disagree about where a quarter starts. */
+
+export const RANGE_PRESETS = [
+  { key: 'month', label: 'This month' },
+  { key: 'last_month', label: 'Last month' },
+  { key: 'quarter', label: 'Quarter to date' },
+  { key: 'year', label: 'Year to date' },
+  { key: 'all', label: 'All time' },
+]
+
+const ymd = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+export function presetRange(key, today = new Date()) {
+  const y = today.getFullYear()
+  const m = today.getMonth()
+  switch (key) {
+    case 'month':
+      return { from: ymd(new Date(y, m, 1)), to: ymd(today) }
+    case 'last_month':
+      // Day 0 of this month is the last day of the previous one.
+      return { from: ymd(new Date(y, m - 1, 1)), to: ymd(new Date(y, m, 0)) }
+    case 'quarter':
+      return { from: ymd(new Date(y, Math.floor(m / 3) * 3, 1)), to: ymd(today) }
+    case 'year':
+      return { from: ymd(new Date(y, 0, 1)), to: ymd(today) }
+    default:
+      return { from: '', to: '' }
+  }
+}
+
+// Which preset, if any, the current from/to pair corresponds to — so the chip
+// stays lit after a reload rather than only right after it was clicked.
+export function matchPreset(from, to, today = new Date()) {
+  if (!from && !to) return 'all'
+  for (const { key } of RANGE_PRESETS) {
+    if (key === 'all') continue
+    const r = presetRange(key, today)
+    if (r.from === from && r.to === to) return key
+  }
+  return null
+}
+
 export function downloadCSV(filename, rows) {
   const esc = (v) => {
     const s = String(v ?? '')

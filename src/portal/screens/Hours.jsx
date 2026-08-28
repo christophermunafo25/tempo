@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { pget, ppost } from '../api.js'
 import { EmptyState } from '../../components/ui.jsx'
-import { fmtDuration, fmtHours, downloadCSV } from '../../time.js'
+import {
+  fmtDuration, fmtHours, downloadCSV, RANGE_PRESETS, presetRange, matchPreset,
+} from '../../time.js'
 import { csvRows, projectNames, sessionNotes, totalHours } from '../csv.js'
 
 const PER_PAGE = 25
@@ -37,6 +39,8 @@ export default function Hours() {
   useEffect(() => { load() }, [load])
 
   const set = (key, value) => { setFilters(f => ({ ...f, [key]: value })); setPage(1) }
+  const applyPreset = (key) => { setFilters(f => ({ ...f, ...presetRange(key) })); setPage(1) }
+  const activePreset = matchPreset(filters.from, filters.to)
   const clear = () => { setFilters({ from: '', to: '', project_id: '' }); setPage(1) }
   const filtered = filters.from || filters.to || filters.project_id
 
@@ -64,6 +68,13 @@ export default function Hours() {
   return (
     <div className="screen">
       <h1 className="screen-title">Hours</h1>
+
+      <div className="filterbar">
+        {RANGE_PRESETS.map(p => (
+          <button key={p.key} className={`chip${activePreset === p.key ? ' active' : ''}`}
+            onClick={() => applyPreset(p.key)}>{p.label}</button>
+        ))}
+      </div>
 
       <div className="filterbar">
         <label className="portal-filter">

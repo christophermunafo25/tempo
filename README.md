@@ -192,6 +192,24 @@ The table shows when each link was last opened and how many times. That counts
 viewing *sessions* rather than requests — one page load hits several endpoints,
 and a write per request for a stat nobody reads to the minute is waste.
 
+### What the recipient sees
+
+The link opens `/s/<token>`: one page, no navigation, no account, nothing
+writable. Hours this week against the contracted target, hours this month,
+published session count, then the sessions table with date, hours, projects
+and — unless the link was created without notes — the summaries.
+
+Filters are the same as the portal's: a from/to pair plus quick ranges for
+this month, last month, quarter to date, year to date, and all time. "What did
+he cost me in Q2" is the question a client actually arrives with, and picking
+two dates by hand is a poor substitute for asking it. The per-project
+breakdown carries the same estimate caveat as everywhere else, and a CSV
+export re-runs the same filter through the same helper the table uses.
+
+An expired, revoked, rotated or never-real link all render the same short "this
+link is no longer valid" page. Telling them apart is precisely what a prober
+would want, so the page doesn't.
+
 ### What a share link costs you
 
 A share link is a bearer credential. **Anyone holding the URL has the access.**

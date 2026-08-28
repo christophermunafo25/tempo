@@ -337,3 +337,147 @@ test('view stats count viewing sessions, not requests', async () => {
     'a burst inside the window is one view, not five writes')
   assert.ok(after.last_viewed_at, 'and the first one did record a timestamp')
 })
+
+/* ── Owner management ────────────────────────────────────────────────────
+   Minting, labelling, renewing, revoking and rotating from /access. */
+
+test('the owner mints a link and sees the URL exactly once', async () => {
+  const r = await call('POST', '/api/access/share-links', {
+    cookie: owner, body: { client_id: merc.id, label: 'Finance team', expires_in_days: 90 },
+  })
+  assert.equal(r.status, 200)
+  assert.match(r.json.url_path, /^\/s\/[A-Za-z0-9_-]{20,}$/)
+  assert.ok(r.json.link.expires_at, 'the 90-day default landed')
+
+  const fresh = r.json.url_path.split('/s/')[1]
+  assert.equal((await call('GET', `/api/share/${fresh}/sessions`)).status, 200)
+
+  // Only the hash is stored, so nothing can hand the URL back.
+  const listing = await call('GET', '/api/access/clients', { cookie: owner })
+  const company = listing.json.find(c => c.id === merc.id)
+  const row = company.share_links.find(l => l.label === 'Finance team')
+  assert.ok(row, 'the link is listed')
+  assert.ok(!listing.text.includes(fresh), 'the token never appears in the listing')
+  assert.equal(row.token_hash, undefined, 'not even the hash is sent to the browser')
+  assert.equal(row.state, 'active')
+})
+
+test('creating the first link switches the portal on for that company', async () => {
+  await q(null, 'UPDATE clients SET portal_enabled = 0 WHERE id = ?', [north.id])
+  const r = await call('POST', '/api/access/share-links',
+    { cookie: owner, body: { client_id: north.id, label: 'Ops' } })
+  assert.equal(r.status, 200)
+  const c = await q1(null, 'SELECT * FROM clients WHERE id = ?', [north.id])
+  assert.equal(c.portal_enabled, 1, 'a link that 404s for no visible reason is worse')
+
+  const t = r.json.url_path.split('/s/')[1]
+  const scoped = await call('GET', `/api/share/${t}/projects`)
+  assert.deepEqual(scoped.json.map(p => p.name), ['Northwind Secret'],
+    "and it is scoped to its own company, not the one that came first")
+})
+
+test('an unlabelled link and a never-expiring link are both allowed', async () => {
+  const r = await call('POST', '/api/access/share-links',
+    { cookie: owner, body: { client_id: merc.id, expires_in_days: null } })
+  assert.equal(r.status, 200)
+  assert.equal(r.json.link.expires_at, null)
+  assert.equal(r.json.link.label, '')
+})
+
+test('a nonsense expiry is refused', async () => {
+  for (const days of [0, -5, 99999, 'soon']) {
+    const r = await call('POST', '/api/access/share-links',
+      { cookie: owner, body: { client_id: merc.id, expires_in_days: days } })
+    assert.equal(r.status, 400, String(days))
+  }
+})
+
+test('revoking kills the URL on the next request and keeps the row', async () => {
+  const made = await call('POST', '/api/access/share-links',
+    { cookie: owner, body: { client_id: merc.id, label: 'Temp' } })
+  const t = made.json.url_path.split('/s/')[1]
+  assert.equal((await call('GET', `/api/share/${t}/summary`)).status, 200)
+
+  const revoked = await call('POST', `/api/access/share-links/${made.json.link.id}/revoke`,
+    { cookie: owner })
+  assert.equal(revoked.status, 200)
+  assert.equal((await call('GET', `/api/share/${t}/summary`)).status, 404)
+
+  const row = await q1(null, 'SELECT * FROM portal_share_links WHERE id = ?', [made.json.link.id])
+  assert.ok(row, 'the row is kept for the trail')
+  assert.ok(row.revoked_at)
+})
+
+test('rotating issues a new URL and kills the old one', async () => {
+  const made = await call('POST', '/api/access/share-links',
+    { cookie: owner, body: { client_id: merc.id, label: 'Dana', shows_notes: false } })
+  const oldToken = made.json.url_path.split('/s/')[1]
+  assert.equal((await call('GET', `/api/share/${oldToken}/summary`)).status, 200)
+
+  const rotated = await call('POST', `/api/access/share-links/${made.json.link.id}/rotate`,
+    { cookie: owner })
+  assert.equal(rotated.status, 200)
+  const newToken = rotated.json.url_path.split('/s/')[1]
+  assert.notEqual(newToken, oldToken)
+
+  assert.equal((await call('GET', `/api/share/${oldToken}/summary`)).status, 404, 'old URL dead')
+  assert.equal((await call('GET', `/api/share/${newToken}/summary`)).status, 200, 'new URL live')
+
+  // Settings carry over, and the old row survives so the leak is traceable.
+  assert.equal(rotated.json.link.label, 'Dana')
+  assert.equal(rotated.json.link.shows_notes, 0, 'the no-notes choice is preserved')
+  const old = await q1(null, 'SELECT * FROM portal_share_links WHERE id = ?', [made.json.link.id])
+  assert.ok(old.revoked_at, 'rotation revokes rather than overwrites')
+})
+
+test('an expired link can be renewed', async () => {
+  const made = await call('POST', '/api/access/share-links',
+    { cookie: owner, body: { client_id: merc.id, label: 'Lapsed' } })
+  const t = made.json.url_path.split('/s/')[1]
+  await q(null, 'UPDATE portal_share_links SET expires_at = ? WHERE id = ?',
+    [new Date(Date.now() - 1000).toISOString(), made.json.link.id])
+  assert.equal((await call('GET', `/api/share/${t}/summary`)).status, 404)
+
+  const renewed = await call('PATCH', `/api/access/share-links/${made.json.link.id}`,
+    { cookie: owner, body: { expires_in_days: 90 } })
+  assert.equal(renewed.status, 200)
+  assert.equal((await call('GET', `/api/share/${t}/summary`)).status, 200,
+    'the same URL works again — renewing is not rotating')
+})
+
+test('the notes setting can be changed on a live link', async () => {
+  const made = await call('POST', '/api/access/share-links',
+    { cookie: owner, body: { client_id: merc.id, label: 'Quiet' } })
+  const t = made.json.url_path.split('/s/')[1]
+  assert.ok((await call('GET', `/api/share/${t}/sessions?per_page=100`)).text.includes('published work'))
+
+  await call('PATCH', `/api/access/share-links/${made.json.link.id}`,
+    { cookie: owner, body: { shows_notes: false } })
+  const after = await call('GET', `/api/share/${t}/sessions?per_page=100`)
+  assert.ok(!after.text.includes('published work'), 'notes withheld from the same URL')
+})
+
+test('share link management is owner-only', async () => {
+  const anon = [
+    ['POST', '/api/access/share-links'],
+    ['PATCH', '/api/access/share-links/1'],
+    ['POST', '/api/access/share-links/1/revoke'],
+    ['POST', '/api/access/share-links/1/rotate'],
+  ]
+  for (const [method, url] of anon) {
+    assert.equal((await call(method, url, { body: {} })).status, 401, `${method} ${url}`)
+  }
+  // And a share link cannot mint itself more links.
+  for (const [method, url] of anon) {
+    const r = await call(method, `${url}?token=${token}`, { body: { client_id: merc.id } })
+    assert.equal(r.status, 401, `${method} ${url} accepted a share token`)
+  }
+})
+
+test('every share link action is audited', async () => {
+  const actions = (await q(null, 'SELECT DISTINCT action FROM portal_audit')).map(a => a.action)
+  for (const expected of ['share_link_created', 'share_link_revoked',
+    'share_link_rotated', 'share_link_renewed']) {
+    assert.ok(actions.includes(expected), `missing ${expected}`)
+  }
+})

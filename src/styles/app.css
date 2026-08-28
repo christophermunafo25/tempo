@@ -1272,3 +1272,21 @@ a { color: inherit; text-decoration: none; }
 .portal-danger-btn { background: #e94560; color: #fff; }
 
 .portal-rename { margin-left: var(--space-2); font-size: 12px; }
+
+.portal-share {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  border-top: 1px solid var(--hairline);
+  padding-top: var(--space-5);
+}
+.portal-share .portal-publish-head { margin-bottom: 0; align-items: flex-start; }
+.portal-share-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  background: var(--surface-2);
+  border-radius: var(--radius-input);
+}
+.portal-share-form .input { max-width: 320px; }

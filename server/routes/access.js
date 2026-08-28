@@ -11,6 +11,7 @@ import { h, httpError } from '../http.js'
 import {
   normEmail, audit, revokeAllSessions,
   issueOneTimeToken, burnOutstanding, TOKEN_TTL,
+  mintToken, hashToken,
 } from '../auth.js'
 import { listComments, addComment, markRead, validComment } from '../portal-query.js'
 
@@ -20,6 +21,22 @@ const nowISO = () => new Date().toISOString()
 const inviteLink = (token) => `/portal/set-password?t=${token}`
 
 const flag = (value, fallback) => (value === undefined ? fallback : (value ? 1 : 0))
+
+async function shareLinksFor(clientId) {
+  const rows = await q(null, `
+    SELECT id, label, shows_notes, expires_at, revoked_at,
+           last_viewed_at, view_count, created_at
+    FROM portal_share_links
+    WHERE client_id = ?
+    ORDER BY id DESC`, [clientId])
+
+  return rows.map(l => ({
+    ...l,
+    state: l.revoked_at ? 'revoked'
+      : (l.expires_at && new Date(l.expires_at).getTime() <= Date.now()) ? 'expired'
+      : 'active',
+  }))
+}
 
 async function contactsFor(clientId) {
   return q(null, `
@@ -54,6 +71,7 @@ router.get('/clients', h(async (req, res) => {
     out.push({
       ...client,
       contacts: contacts.map(c => ({ ...c, invite_pending: pending.has(c.id) ? 1 : 0 })),
+      share_links: await shareLinksFor(client.id),
     })
   }
   res.json(out)
@@ -114,6 +132,128 @@ router.patch('/clients/:id', h(async (req, res) => {
   }
 
   res.json(updated)
+}))
+
+/* ── Share links ─────────────────────────────────────────────────────────
+   A share link is a bearer credential: whoever holds the URL has the access.
+   Only the SHA-256 hash is stored, exactly as invites and resets are, which
+   means the URL can be shown once and never again. Losing it means rotating,
+   not looking it up — the same trade the invite flow already makes, and the
+   reason each link carries a label. */
+
+const SHARE_MAX_DAYS = 3650
+
+function expiryFrom(value, fallback = null) {
+  if (value === undefined) return fallback
+  if (value === null) return null                     // an explicit "never"
+  const days = Number(value)
+  if (!Number.isFinite(days) || days <= 0 || days > SHARE_MAX_DAYS) {
+    throw httpError(400, 'expiry must be a positive number of days, or null for never')
+  }
+  return new Date(Date.now() + days * 86400000).toISOString()
+}
+
+const shareUrl = (token) => `/s/${token}`
+
+async function createLink({ clientId, label, expiresAt, showsNotes, ownerId }) {
+  const token = mintToken()
+  const row = await q1(null, `
+    INSERT INTO portal_share_links
+      (client_id, token_hash, label, shows_notes, expires_at, created_by)
+    VALUES (?,?,?,?,?,?) RETURNING *`,
+    [clientId, hashToken(token), label, showsNotes ? 1 : 0, expiresAt, ownerId])
+  return { row, token }
+}
+
+router.post('/share-links', h(async (req, res) => {
+  const client = await q1(null, 'SELECT * FROM clients WHERE id = ?', [req.body?.client_id])
+  if (!client) throw httpError(404, 'client not found')
+
+  const label = String(req.body?.label || '').trim().slice(0, 120)
+  const expiresAt = expiryFrom(req.body?.expires_in_days, expiryFrom(90))
+  const { row, token } = await createLink({
+    clientId: client.id,
+    label,
+    expiresAt,
+    showsNotes: req.body?.shows_notes !== false,
+    ownerId: req.portalUser.id,
+  })
+
+  // Turning access on with the first link saves a second step that would be
+  // easy to forget and would make the link 404 for no visible reason.
+  if (!client.portal_enabled) {
+    await q(null, 'UPDATE clients SET portal_enabled = 1 WHERE id = ?', [client.id])
+  }
+
+  await audit(req, 'share_link_created', {
+    user: req.portalUser, clientId: client.id, detail: label || '(unlabelled)',
+  })
+  res.json({ link: row, url_path: shareUrl(token) })
+}))
+
+router.patch('/share-links/:id', h(async (req, res) => {
+  const link = await q1(null, 'SELECT * FROM portal_share_links WHERE id = ?', [req.params.id])
+  if (!link) throw httpError(404, 'share link not found')
+
+  const label = req.body?.label === undefined
+    ? link.label
+    : String(req.body.label).trim().slice(0, 120)
+  const showsNotes = req.body?.shows_notes === undefined
+    ? link.shows_notes
+    : (req.body.shows_notes ? 1 : 0)
+  const expiresAt = expiryFrom(req.body?.expires_in_days, link.expires_at)
+
+  const updated = await q1(null, `
+    UPDATE portal_share_links SET label = ?, shows_notes = ?, expires_at = ?
+    WHERE id = ? RETURNING *`, [label, showsNotes, expiresAt, link.id])
+
+  if (req.body?.expires_in_days !== undefined) {
+    await audit(req, 'share_link_renewed', {
+      user: req.portalUser, clientId: link.client_id,
+      detail: `${link.label || '(unlabelled)'} → ${expiresAt || 'never expires'}`,
+    })
+  }
+  res.json(updated)
+}))
+
+// Soft, like every other delete here. The row stays so the audit trail and the
+// last-viewed record survive, and the URL stops working immediately.
+router.post('/share-links/:id/revoke', h(async (req, res) => {
+  const link = await q1(null, 'SELECT * FROM portal_share_links WHERE id = ?', [req.params.id])
+  if (!link) throw httpError(404, 'share link not found')
+  if (link.revoked_at) return res.json(link)
+
+  const updated = await q1(null,
+    'UPDATE portal_share_links SET revoked_at = ? WHERE id = ? RETURNING *',
+    [nowISO(), link.id])
+  await audit(req, 'share_link_revoked', {
+    user: req.portalUser, clientId: link.client_id, detail: link.label || '(unlabelled)',
+  })
+  res.json(updated)
+}))
+
+// Rotation revokes the old row and issues a new one carrying the same label
+// and settings, rather than swapping the token on the row in place. The point
+// of rotating is usually that a URL leaked, and that is worth being able to
+// see afterwards: when it was minted, when it was last opened, when it died.
+router.post('/share-links/:id/rotate', h(async (req, res) => {
+  const link = await q1(null, 'SELECT * FROM portal_share_links WHERE id = ?', [req.params.id])
+  if (!link) throw httpError(404, 'share link not found')
+
+  await q(null, 'UPDATE portal_share_links SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL',
+    [nowISO(), link.id])
+  const { row, token } = await createLink({
+    clientId: link.client_id,
+    label: link.label,
+    expiresAt: link.expires_at,
+    showsNotes: link.shows_notes,
+    ownerId: req.portalUser.id,
+  })
+
+  await audit(req, 'share_link_rotated', {
+    user: req.portalUser, clientId: link.client_id, detail: link.label || '(unlabelled)',
+  })
+  res.json({ link: row, url_path: shareUrl(token) })
 }))
 
 /* ── Archiving ───────────────────────────────────────────────────────────

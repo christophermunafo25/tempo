@@ -249,6 +249,8 @@ function CompanyCard({ client, onChange, style }) {
 
       {link && <LinkBox link={link} onDismiss={() => setLink(null)} />}
 
+      <ShareLinks client={client} onChange={onChange} />
+
       {impact
         ? <ArchiveConfirm client={client} impact={impact}
             onConfirm={archive} onCancel={() => setImpact(null)} />
@@ -260,6 +262,193 @@ function CompanyCard({ client, onChange, style }) {
           </div>
         )}
     </section>
+  )
+}
+
+/* Share links: a URL that opens straight into this company's hours with no
+   account. Only the hash is stored, so the URL is visible once and never
+   again — losing it means rotating, which is why every link carries a label. */
+function ShareLinks({ client, onChange }) {
+  const [minted, setMinted] = useState(null)
+  const [creating, setCreating] = useState(false)
+  const [label, setLabel] = useState('')
+  const [days, setDays] = useState('90')
+  const [showsNotes, setShowsNotes] = useState(true)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const links = client.share_links || []
+  const live = links.filter(l => l.state === 'active')
+
+  const run = async (fn) => {
+    setBusy(true); setError('')
+    try { await fn() } catch (e) { setError(e.message) } finally { setBusy(false) }
+  }
+
+  const create = (e) => {
+    e.preventDefault()
+    return run(async () => {
+      const res = await post('/access/share-links', {
+        client_id: client.id,
+        label,
+        expires_in_days: days === 'never' ? null : Number(days),
+        shows_notes: showsNotes,
+      })
+      setMinted({ ...res, label })
+      setLabel(''); setCreating(false)
+      onChange()
+    })
+  }
+
+  return (
+    <div className="portal-share">
+      <div className="portal-publish-head">
+        <div>
+          <div className="label">Share links</div>
+          <p className="portal-dim">
+            Opens this company’s hours with no account. Anyone holding the URL
+            has the access, so treat it like a password you can’t take back —
+            revoke or rotate instead.
+          </p>
+        </div>
+        {!creating && (
+          <button className="btn btn-sm" onClick={() => setCreating(true)}>New link</button>
+        )}
+      </div>
+
+      {creating && (
+        <form className="portal-share-form" onSubmit={create}>
+          <div className="field">
+            <label className="label" htmlFor={`sl-label-${client.id}`}>Who is this for?</label>
+            <input id={`sl-label-${client.id}`} className="input" autoFocus maxLength={120}
+              placeholder="Finance team" value={label}
+              onChange={(e) => setLabel(e.target.value)} />
+            <span className="auth-hint">
+              A label is how you tell two links apart later — the URL itself is
+              never shown again.
+            </span>
+          </div>
+          <div className="field">
+            <label className="label" htmlFor={`sl-exp-${client.id}`}>Expires</label>
+            <select id={`sl-exp-${client.id}`} className="input" value={days}
+              onChange={(e) => setDays(e.target.value)}>
+              <option value="90">In 90 days</option>
+              <option value="365">In a year</option>
+              <option value="never">Never</option>
+            </select>
+          </div>
+          <label className="portal-toggle">
+            <Checkbox checked={showsNotes} onChange={() => setShowsNotes(v => !v)}
+              label="Include session notes" />
+            <span>Include session notes</span>
+          </label>
+          <div className="portal-publish-actions">
+            <button className="btn btn-sm" type="submit" disabled={busy}>
+              {busy ? 'Creating…' : 'Create link'}
+            </button>
+            <button className="btn btn-outline btn-sm" type="button"
+              onClick={() => setCreating(false)}>Cancel</button>
+          </div>
+        </form>
+      )}
+
+      {minted && <ShareUrlBox minted={minted} onDismiss={() => setMinted(null)} />}
+      {error && <p className="field-error">{error}</p>}
+
+      {links.length > 0 && (
+        <table className="portal-table">
+          <thead>
+            <tr><th>Label</th><th>Status</th><th>Last opened</th><th /></tr>
+          </thead>
+          <tbody>
+            {links.map(l => (
+              <tr key={l.id} className={l.state === 'active' ? '' : 'is-revoked'}>
+                <td>
+                  <div className="portal-contact">{l.label || 'Unlabelled'}</div>
+                  <div className="portal-contact-name">
+                    {l.shows_notes ? 'With notes' : 'No notes'}
+                    {l.expires_at
+                      ? ` · ${l.state === 'expired' ? 'expired' : 'expires'} ${fmtDate(l.expires_at)}`
+                      : ' · never expires'}
+                  </div>
+                </td>
+                <td><span className="pill">{l.state}</span></td>
+                <td className="mono portal-dim">
+                  {l.last_viewed_at
+                    ? `${fmtDate(l.last_viewed_at)} · ${l.view_count} view${l.view_count === 1 ? '' : 's'}`
+                    : 'never'}
+                </td>
+                <td className="portal-actions">
+                  {l.state === 'expired' && (
+                    <button className="btn-ghost btn-sm" disabled={busy}
+                      onClick={() => run(async () => {
+                        await patch(`/access/share-links/${l.id}`, { expires_in_days: 90 })
+                        onChange()
+                      })}>Renew</button>
+                  )}
+                  {/* Reissue works on a dead link too: it keeps the label and
+                      settings, which is the whole reason to reach for it after
+                      revoking rather than starting from a blank form. */}
+                  <button className="btn-ghost btn-sm" disabled={busy}
+                    onClick={() => run(async () => {
+                      setMinted({
+                        ...(await post(`/access/share-links/${l.id}/rotate`)),
+                        label: l.label,
+                      })
+                      onChange()
+                    })}>{l.state === 'revoked' ? 'Reissue' : 'Rotate'}</button>
+                  {l.state !== 'revoked' && (
+                    <button className="btn-ghost btn-sm portal-danger" disabled={busy}
+                      onClick={() => run(async () => {
+                        await post(`/access/share-links/${l.id}/revoke`)
+                        onChange()
+                      })}>Revoke</button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {live.length === 0 && links.length > 0 && (
+        <p className="portal-dim">No live links. Rotate one to issue a fresh URL.</p>
+      )}
+    </div>
+  )
+}
+
+// Shown once. The database holds only a hash, so there is no second chance to
+// read this and no way for anyone — including the owner — to recover it later.
+function ShareUrlBox({ minted, onDismiss }) {
+  const [copied, setCopied] = useState(false)
+  const url = `${window.location.origin}${minted.url_path}`
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  return (
+    <div className="portal-linkbox">
+      <div className="label">
+        Share link{minted.label ? ` for ${minted.label}` : ''}
+      </div>
+      <p className="portal-dim">
+        Copy it now — this is the only time it is shown. Only a hash is stored,
+        so it can’t be looked up again; if you lose it, rotate the link.
+      </p>
+      <div className="portal-linkrow">
+        <input className="input mono" readOnly value={url} onFocus={(e) => e.target.select()} />
+        <button className="btn btn-sm" onClick={copy}>{copied ? 'Copied' : 'Copy'}</button>
+        <button className="btn-ghost btn-sm" onClick={onDismiss}>Done</button>
+      </div>
+    </div>
   )
 }
 

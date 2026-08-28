@@ -163,6 +163,54 @@ company at a glance in the charts and every client dot.
 An empty name is refused: it would render as a blank row in every list. Both
 changes are recorded in the audit log with the old value.
 
+## Share links: access without a login
+
+Most clients will not create an account. **Portal → Access → Share links →
+New link** produces a URL that opens straight into that company's hours with
+no sign-in, scoped to that company and nothing else.
+
+Give it a label — "Finance team", "Dana" — and pick an expiry: 90 days by
+default, a year, or never. Multiple live links per company is the point: you
+can see which recipient is actually opening theirs, and kill one without
+killing the rest. Creating the first link switches that company's portal on,
+since a link that 404s for no visible reason is worse than an extra click.
+
+**The URL is shown once.** Only its SHA-256 hash is stored, exactly as invite
+and reset links work, so nothing — not the app, not the database, not you —
+can hand it back afterwards. That is why every link carries a label, and why
+losing one means **Reissue** rather than looking it up.
+
+- **Rotate / Reissue** revokes the current URL and mints a fresh one under the
+  same label and settings. Reach for it when a link has travelled further than
+  intended. The old row stays, marked revoked, holding its last-opened record,
+  so a leak is traceable afterwards.
+- **Revoke** kills the URL on the recipient's very next request.
+- **Renew** appears once a link has lapsed and extends the same URL by 90 days.
+  Renewing is not rotating: the recipient's existing link keeps working.
+
+The table shows when each link was last opened and how many times. That counts
+viewing *sessions* rather than requests — one page load hits several endpoints,
+and a write per request for a stat nobody reads to the minute is waste.
+
+### What a share link costs you
+
+A share link is a bearer credential. **Anyone holding the URL has the access.**
+Forwarding is indistinguishable from legitimate use, there is no second factor,
+and nothing identifies who is at the other end. If it lands in a forwarded
+email thread, a shared inbox, or a ticket, it works there too.
+
+The only controls are the ones above — rotation, revocation, expiry — plus two
+structural limits: the surface is **read-only** (the router refuses every
+method but GET, so there is nothing to write and CSRF has no surface), and it
+is scoped to **one company** with the scope read from the link row rather than
+from anything in the request.
+
+That is a real downgrade from a password, and it is the trade being made
+deliberately: a client who will never create an account sees nothing at all,
+and nothing is worse than read-only. Where a recipient will sign in, invite
+them instead — comment threads and project requests need an identified author
+and are absent from share links for exactly that reason.
+
 ## Archiving a client
 
 There is no hard delete. **Portal → Access → Archive this company** sets

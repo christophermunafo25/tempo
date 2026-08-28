@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { get, post, patch } from '../api.js'
 import { ClientDot, Checkbox, EmptyState, WeekStepper } from '../components/ui.jsx'
 import Thread from '../components/Thread.jsx'
-import { weekRange, fmtRange, fmtDate, fmtTime, fmtHours, localDayKey } from '../time.js'
+import {
+  weekRange, fmtRange, fmtDate, fmtTime, fmtHours, localDayKey, CLIENT_COLORS,
+} from '../time.js'
 
 const TABS = [
   { key: 'access', label: 'Access' },
@@ -112,6 +114,7 @@ function CompanyCard({ client, onChange, style }) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [impact, setImpact] = useState(null)
+  const [editing, setEditing] = useState(false)
 
   const toggle = async (field, value) => {
     await patch(`/access/clients/${client.id}`, { [field]: value })
@@ -167,6 +170,11 @@ function CompanyCard({ client, onChange, style }) {
         <h2 className="portal-company">
           <ClientDot color={client.color_accent} size={10} />
           {client.name}
+          <button className="btn-ghost btn-sm portal-rename"
+            onClick={() => setEditing(v => !v)}
+            aria-label={`Rename ${client.name} or change its colour`}>
+            {editing ? 'Close' : 'Edit'}
+          </button>
         </h2>
         <div className="portal-toggles">
           <label className="portal-toggle">
@@ -185,6 +193,12 @@ function CompanyCard({ client, onChange, style }) {
           </label>
         </div>
       </header>
+
+      {editing && (
+        <ClientDetails client={client}
+          onDone={() => { setEditing(false); onChange() }}
+          onCancel={() => setEditing(false)} />
+      )}
 
       {client.contacts.length > 0 && (
         <table className="portal-table">
@@ -246,6 +260,60 @@ function CompanyCard({ client, onChange, style }) {
           </div>
         )}
     </section>
+  )
+}
+
+/* Name and accent colour. The colour is what identifies a company at a glance
+   on the Board, the Dashboard charts and every client dot, so it's picked from
+   the same fixed palette rather than a free colour field. */
+function ClientDetails({ client, onDone, onCancel }) {
+  const [name, setName] = useState(client.name)
+  const [color, setColor] = useState(client.color_accent)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const dirty = name.trim() !== client.name || color !== client.color_accent
+
+  const save = async (e) => {
+    e.preventDefault()
+    setBusy(true); setError('')
+    try {
+      await patch(`/access/clients/${client.id}`, { name: name.trim(), color_accent: color })
+      onDone()
+    } catch (err) {
+      setError(err.message); setBusy(false)
+    }
+  }
+
+  return (
+    <form className="portal-edit" onSubmit={save}>
+      <div className="field">
+        <label className="label" htmlFor={`name-${client.id}`}>Name</label>
+        <input id={`name-${client.id}`} className="input" autoFocus required maxLength={120}
+          value={name} onChange={(e) => setName(e.target.value)} />
+      </div>
+      <div className="field">
+        <span className="label">Accent colour</span>
+        <div className="swatches">
+          {CLIENT_COLORS.map(c => (
+            <button key={c} type="button" aria-label={c}
+              className={`swatch${color === c ? ' active' : ''}`}
+              style={{ background: c }} onClick={() => setColor(c)} />
+          ))}
+        </div>
+        <span className="auth-hint">
+          Renaming changes this company everywhere, including on past
+          timesheets and in the client’s own portal. Hours are untouched.
+        </span>
+      </div>
+      {error && <p className="field-error">{error}</p>}
+      <div className="portal-publish-actions">
+        <button className="btn btn-sm" type="submit" disabled={busy || !dirty}>
+          {busy ? 'Saving…' : 'Save'}
+        </button>
+        <button className="btn btn-outline btn-sm" type="button" onClick={onCancel}>Cancel</button>
+      </div>
+    </form>
   )
 }
 

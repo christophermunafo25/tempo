@@ -59,21 +59,60 @@ router.get('/clients', h(async (req, res) => {
   res.json(out)
 }))
 
+const NAME_MAX = 120
+const HEX = /^#[0-9a-fA-F]{6}$/
+
 // Deliberately separate from PATCH /api/clients/:id so that route stays exactly
-// as it was. This one touches the two portal columns and nothing else.
+// as it was. Fields are read by name; anything else in the body is ignored.
 router.patch('/clients/:id', h(async (req, res) => {
   const client = await q1(null, 'SELECT * FROM clients WHERE id = ?', [req.params.id])
   if (!client) throw httpError(404, 'client not found')
-  const updated = await q1(null,
-    'UPDATE clients SET portal_enabled = ?, portal_shows_rates = ? WHERE id = ? RETURNING *',
-    [flag(req.body.portal_enabled, client.portal_enabled),
+
+  let name = client.name
+  if (req.body.name !== undefined) {
+    name = String(req.body.name).trim()
+    // An empty name would render as a blank row everywhere a client is listed.
+    if (!name) throw httpError(400, 'a client needs a name')
+    if (name.length > NAME_MAX) throw httpError(400, `a name can’t be longer than ${NAME_MAX} characters`)
+  }
+
+  let color = client.color_accent
+  if (req.body.color_accent !== undefined) {
+    color = String(req.body.color_accent).trim()
+    if (!HEX.test(color)) throw httpError(400, 'accent colour must be a hex value like #6B93C4')
+  }
+
+  const updated = await q1(null, `
+    UPDATE clients SET name = ?, color_accent = ?, portal_enabled = ?, portal_shows_rates = ?
+    WHERE id = ? RETURNING *`,
+    [name, color,
+     flag(req.body.portal_enabled, client.portal_enabled),
      flag(req.body.portal_shows_rates, client.portal_shows_rates),
      client.id])
-  await audit(req, 'portal_toggled', {
-    user: req.portalUser,
-    clientId: client.id,
-    detail: `portal_enabled=${updated.portal_enabled} portal_shows_rates=${updated.portal_shows_rates}`,
-  })
+
+  // One audit row per actual change: renaming a company mid-contract is
+  // exactly the kind of thing worth being able to trace back later.
+  if (updated.name !== client.name) {
+    await audit(req, 'client_renamed', {
+      user: req.portalUser, clientId: client.id,
+      detail: `${client.name} → ${updated.name}`,
+    })
+  }
+  if (updated.color_accent !== client.color_accent) {
+    await audit(req, 'client_recoloured', {
+      user: req.portalUser, clientId: client.id,
+      detail: `${client.color_accent} → ${updated.color_accent}`,
+    })
+  }
+  if (updated.portal_enabled !== client.portal_enabled ||
+      updated.portal_shows_rates !== client.portal_shows_rates) {
+    await audit(req, 'portal_toggled', {
+      user: req.portalUser,
+      clientId: client.id,
+      detail: `portal_enabled=${updated.portal_enabled} portal_shows_rates=${updated.portal_shows_rates}`,
+    })
+  }
+
   res.json(updated)
 }))
 

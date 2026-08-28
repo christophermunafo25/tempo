@@ -212,6 +212,67 @@ test('the owner still sees archived companies, to be able to restore them', asyn
   await call('POST', `/api/access/clients/${drop.id}/restore`, { cookie: owner })
 })
 
+/* ── Rename and recolour ─────────────────────────────────────────────── */
+
+test('a client can be renamed and recoloured without touching their hours', async () => {
+  const before = await call('GET', '/api/sessions', { cookie: owner })
+  const beforeMinutes = before.json.reduce((a, s) => a + s.duration_minutes, 0)
+
+  const r = await call('PATCH', `/api/access/clients/${keep.id}`, {
+    cookie: owner, body: { name: 'Keep Co Ltd', color_accent: '#D9A13B' },
+  })
+  assert.equal(r.status, 200)
+  assert.equal(r.json.name, 'Keep Co Ltd')
+  assert.equal(r.json.color_accent, '#D9A13B')
+
+  const after = await call('GET', '/api/sessions', { cookie: owner })
+  assert.equal(after.json.reduce((a, s) => a + s.duration_minutes, 0), beforeMinutes,
+    'not one minute moved')
+  assert.ok(after.json.some(s => s.client_name === 'Keep Co Ltd'),
+    'past sessions report the new name')
+})
+
+test('the rename leaves an audit trail with the old value', async () => {
+  const rows = await q(null, "SELECT * FROM portal_audit WHERE action = 'client_renamed'")
+  assert.ok(rows.length > 0)
+  assert.match(rows[rows.length - 1].detail, /Keep Co → Keep Co Ltd/)
+  const colours = await q(null, "SELECT * FROM portal_audit WHERE action = 'client_recoloured'")
+  assert.ok(colours.length > 0)
+})
+
+test('an empty name or a bad colour is refused', async () => {
+  for (const body of [{ name: '   ' }, { name: '' }, { color_accent: 'red' },
+    { color_accent: '#GGGGGG' }, { name: 'x'.repeat(200) }]) {
+    const r = await call('PATCH', `/api/access/clients/${keep.id}`, { cookie: owner, body })
+    assert.equal(r.status, 400, JSON.stringify(body))
+  }
+  const still = await q1(null, 'SELECT * FROM clients WHERE id = ?', [keep.id])
+  assert.equal(still.name, 'Keep Co Ltd', 'the row is untouched by a refused edit')
+})
+
+test('editing a client leaves its other columns alone', async () => {
+  const before = await q1(null, 'SELECT * FROM clients WHERE id = ?', [keep.id])
+  await call('PATCH', `/api/access/clients/${keep.id}`,
+    { cookie: owner, body: { name: 'Keep Co Renamed' } })
+  const after = await q1(null, 'SELECT * FROM clients WHERE id = ?', [keep.id])
+
+  assert.equal(after.name, 'Keep Co Renamed')
+  assert.equal(after.color_accent, before.color_accent, 'colour kept when only the name is sent')
+  assert.equal(after.weekly_hours_target, before.weekly_hours_target)
+  assert.equal(after.is_active, before.is_active)
+  assert.equal(after.created_at, before.created_at)
+})
+
+test('renaming is owner-only', async () => {
+  await call('POST', `/api/access/clients/${drop.id}/restore`, { cookie: owner })
+  const cookie = await login('dana@drop.example', 'dana-portal-password')
+  const r = await call('PATCH', `/api/access/clients/${keep.id}`,
+    { cookie, body: { name: 'Renamed by a client' } })
+  assert.equal(r.status, 404)
+  assert.equal((await q1(null, 'SELECT * FROM clients WHERE id = ?', [keep.id])).name,
+    'Keep Co Renamed')
+})
+
 test('archiving is owner-only and audited', async () => {
   const cookie = await login('dana@drop.example', 'dana-portal-password')
   for (const url of [`/api/access/clients/${keep.id}/archive`, `/api/access/clients/${keep.id}/impact`]) {

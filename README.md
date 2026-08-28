@@ -149,6 +149,20 @@ list and clock-out prefill until you *Accept* them. Accepting records a
 where it came from. *Decline* is soft, takes a reason the client will see, and
 never deletes the row.
 
+## Renaming a client, changing their colour
+
+**Portal → Access → Edit** on a company. Name and accent colour only; weekly
+hours target stays inline-editable on Timesheets where it always was.
+
+Both changes apply everywhere at once, including past timesheets, the Board,
+the Dashboard charts and the client's own portal — they're read from the one
+`clients` row, so there is no stale copy anywhere. Hours are untouched. The
+colour comes from the fixed eight-colour palette, since it's what identifies a
+company at a glance in the charts and every client dot.
+
+An empty name is refused: it would render as a blank row in every list. Both
+changes are recorded in the audit log with the old value.
+
 ## Archiving a client
 
 There is no hard delete. **Portal → Access → Archive this company** sets

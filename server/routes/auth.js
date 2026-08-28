@@ -76,12 +76,21 @@ router.post('/login', h(async (req, res) => {
   }
 
   const user = email
-    ? await q1(null, 'SELECT * FROM portal_users WHERE email = ?', [email])
+    ? await q1(null, `
+        SELECT u.*, c.is_active AS company_active
+        FROM portal_users u
+        LEFT JOIN clients c ON c.id = u.client_id
+        WHERE u.email = ?`, [email])
     : null
+
+  // A contact whose company has been archived is refused here rather than
+  // handed a cookie that dies on their next request.
+  const usable = !!user && !!user.is_active &&
+    !(user.role === 'client' && !user.company_active)
 
   // burnTime runs scrypt against a throwaway hash so response timing doesn't
   // separate an unknown email from a wrong password.
-  const ok = user && user.is_active
+  const ok = usable
     ? await verifyPassword(password, user.password_hash)
     : await burnTime(password)
 
@@ -143,10 +152,17 @@ router.post('/set-password', h(async (req, res) => {
 router.post('/forgot', h(async (req, res) => {
   const email = normEmail(req.body?.email)
   const user = email
-    ? await q1(null, 'SELECT * FROM portal_users WHERE email = ?', [email])
+    ? await q1(null, `
+        SELECT u.*, c.is_active AS company_active
+        FROM portal_users u
+        LEFT JOIN clients c ON c.id = u.client_id
+        WHERE u.email = ?`, [email])
     : null
 
-  if (user && user.is_active && user.password_hash) {
+  const usable = !!user && !!user.is_active && !!user.password_hash &&
+    !(user.role === 'client' && !user.company_active)
+
+  if (usable) {
     await burnOutstanding(user.id, 'reset')
     const token = await issueOneTimeToken(user.id, 'reset', TOKEN_TTL.reset)
     // No mail transport in this build. The link goes to the audit log, where

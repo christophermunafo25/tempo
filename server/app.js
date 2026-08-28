@@ -97,7 +97,8 @@ app.get('/api/projects', h(async (req, res) => {
   // portal_request IS NULL keeps client-submitted requests out of the owner's
   // workflow until they're accepted. Every project that predates the portal has
   // it NULL, so this excludes nothing that existed before.
-  let sql = 'SELECT * FROM projects WHERE portal_request IS NULL'
+  let sql = `SELECT * FROM projects WHERE portal_request IS NULL
+    AND client_id IN (SELECT id FROM clients WHERE is_active = 1)`
   const args = []
   if (client_id) { sql += ' AND client_id = ?'; args.push(client_id) }
   if (!include_complete) sql += " AND status != 'complete'"
@@ -232,6 +233,7 @@ app.get('/api/prefill', h(async (req, res) => {
   const { client_id } = req.query
   const last = await q1(null, `
     SELECT s.id FROM sessions s
+    JOIN clients c ON c.id = s.client_id AND c.is_active = 1
     WHERE s.client_id = ? AND s.clock_out IS NOT NULL
       AND EXISTS (SELECT 1 FROM session_entries e WHERE e.session_id = s.id)
     ORDER BY s.clock_in DESC LIMIT 1`, [client_id])
@@ -310,7 +312,7 @@ app.get('/api/sessions', h(async (req, res) => {
   let sql = `
     SELECT s.*, c.name AS client_name, c.color_accent FROM sessions s
     JOIN clients c ON c.id = s.client_id
-    WHERE s.clock_out IS NOT NULL`
+    WHERE s.clock_out IS NOT NULL AND c.is_active = 1`
   const args = []
   if (from) { sql += ' AND s.clock_in >= ?'; args.push(from) }
   if (to) { sql += ' AND s.clock_in < ?'; args.push(to) }
@@ -335,7 +337,7 @@ app.get('/api/board', h(async (req, res) => {
     SELECT p.*, c.name AS client_name, c.color_accent FROM projects p
     JOIN clients c ON c.id = p.client_id
     WHERE (p.status != 'complete' OR p.completed_at >= ?)
-      AND p.portal_request IS NULL`
+      AND p.portal_request IS NULL AND c.is_active = 1`
   const args = [cutoff]
   if (client_id) { sql += ' AND p.client_id = ?'; args.push(client_id) }
   sql += ' ORDER BY p.created_at'
@@ -364,7 +366,7 @@ app.get('/api/archive', h(async (req, res) => {
   let sql = `
     SELECT p.*, c.name AS client_name, c.color_accent FROM projects p
     JOIN clients c ON c.id = p.client_id
-    WHERE p.status = 'complete' AND p.portal_request IS NULL`
+    WHERE p.status = 'complete' AND p.portal_request IS NULL AND c.is_active = 1`
   const args = []
   if (client_id) { sql += ' AND p.client_id = ?'; args.push(client_id) }
   sql += ' ORDER BY p.completed_at DESC'

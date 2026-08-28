@@ -122,9 +122,11 @@ export async function resolveSession(req, res) {
 
   const row = await q1(null, `
     SELECT s.id AS session_id, s.expires_at, s.created_at AS started_at,
-           u.id AS user_id, u.client_id, u.email, u.role, u.name, u.is_active
+           u.id AS user_id, u.client_id, u.email, u.role, u.name, u.is_active,
+           c.is_active AS company_active
     FROM portal_sessions s
     JOIN portal_users u ON u.id = s.portal_user_id
+    LEFT JOIN clients c ON c.id = u.client_id
     WHERE s.token_hash = ? AND s.revoked_at IS NULL`, [hashToken(token)])
   if (!row) return null
 
@@ -132,6 +134,10 @@ export async function resolveSession(req, res) {
   const expires = new Date(row.expires_at).getTime()
   const absolute = new Date(row.started_at).getTime() + ABSOLUTE_MS
   if (!(expires > now) || absolute <= now || !row.is_active) return null
+  // A contact's access follows their company: archive the company and every
+  // one of its people is locked out on their next request, restore it and they
+  // are back, with no per-user bookkeeping to drift out of step.
+  if (row.role === 'client' && !row.company_active) return null
 
   // Rolling expiry, but only past the half-life — extending on every request
   // would be a write per request through the pooler for no added safety.
@@ -229,19 +235,23 @@ export const TOKEN_TTL = {
   reset: 60 * 60000,
 }
 
-// Unused, unexpired, and attached to an active user. Returns null otherwise —
-// an expired token and a forged one are indistinguishable to the caller.
+// Unused, unexpired, and attached to an active user whose company is still
+// active. Returns null otherwise — an expired token, a forged one and one
+// belonging to an archived company are indistinguishable to the caller.
 export async function consumableToken(token) {
   if (!token) return null
   const row = await q1(null, `
     SELECT t.id, t.kind, t.expires_at, t.portal_user_id,
-           u.email, u.name, u.is_active, u.client_id
+           u.email, u.name, u.is_active, u.client_id, u.role,
+           c.is_active AS company_active
     FROM portal_tokens t
     JOIN portal_users u ON u.id = t.portal_user_id
+    LEFT JOIN clients c ON c.id = u.client_id
     WHERE t.token_hash = ? AND t.used_at IS NULL`, [hashToken(token)])
   if (!row) return null
   if (new Date(row.expires_at).getTime() <= Date.now()) return null
   if (!row.is_active) return null
+  if (row.role === 'client' && !row.company_active) return null
   return row
 }
 

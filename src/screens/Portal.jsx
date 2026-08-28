@@ -56,12 +56,51 @@ export default function Portal() {
 /* ── Access ──────────────────────────────────────────────────────────── */
 
 function AccessTab({ clients, onChange }) {
+  const [showArchived, setShowArchived] = useState(false)
   if (!clients.length) return <EmptyState>No companies yet. Add one from the Clock screen.</EmptyState>
+
+  const active = clients.filter(c => c.is_active)
+  const archived = clients.filter(c => !c.is_active)
+
   return (
     <div className="portal-list">
-      {clients.map((client, i) => (
+      {active.map((client, i) => (
         <CompanyCard key={client.id} client={client} onChange={onChange} style={{ '--i': i }} />
       ))}
+
+      {archived.length > 0 && (
+        <section className="card rise portal-card">
+          <button className="portal-thread-head" onClick={() => setShowArchived(v => !v)}
+            aria-expanded={showArchived}>
+            <span className="label">
+              Archived · {archived.length}
+            </span>
+            <span className="portal-dim">
+              Hidden from the Clock picker, the Board, Timesheets, the Dashboard and their own
+              portal. Nothing is deleted — restoring puts it all back.
+            </span>
+          </button>
+          {showArchived && (
+            <table className="portal-table">
+              <tbody>
+                {archived.map(c => (
+                  <tr key={c.id} className="is-revoked">
+                    <td>
+                      <ClientDot color={c.color_accent} size={8} /> {c.name}
+                    </td>
+                    <td className="portal-actions">
+                      <button className="btn-ghost btn-sm"
+                        onClick={() => post(`/access/clients/${c.id}/restore`).then(onChange)}>
+                        Restore
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </section>
+      )}
     </div>
   )
 }
@@ -72,6 +111,7 @@ function CompanyCard({ client, onChange, style }) {
   const [link, setLink] = useState(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [impact, setImpact] = useState(null)
 
   const toggle = async (field, value) => {
     await patch(`/access/clients/${client.id}`, { [field]: value })
@@ -94,6 +134,26 @@ function CompanyCard({ client, onChange, style }) {
   }
 
   const act = async (path) => { await post(path); onChange() }
+
+  const startArchive = async () => {
+    setError('')
+    try {
+      setImpact(await get(`/access/clients/${client.id}/impact`))
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const archive = async () => {
+    setError('')
+    try {
+      await post(`/access/clients/${client.id}/archive`)
+      setImpact(null)
+      onChange()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
 
   const resend = async (contact) => {
     const res = await post(`/access/invite/${contact.id}/resend`)
@@ -174,7 +234,46 @@ function CompanyCard({ client, onChange, style }) {
       {error && <p className="field-error">{error}</p>}
 
       {link && <LinkBox link={link} onDismiss={() => setLink(null)} />}
+
+      {impact
+        ? <ArchiveConfirm client={client} impact={impact}
+            onConfirm={archive} onCancel={() => setImpact(null)} />
+        : (
+          <div className="portal-card-foot">
+            <button className="btn-ghost btn-sm portal-danger" onClick={startArchive}>
+              Archive this company
+            </button>
+          </div>
+        )}
     </section>
+  )
+}
+
+/* Says what will disappear before it disappears. Archiving hides a company's
+   whole history, so "5 sessions" is the difference between a safe click and a
+   week of timesheets changing under you. */
+function ArchiveConfirm({ client, impact, onConfirm, onCancel }) {
+  return (
+    <div className="portal-confirm">
+      <div className="label">Archive {client.name}?</div>
+      <p className="portal-dim">
+        This hides {impact.sessions} session{impact.sessions === 1 ? '' : 's'}
+        {impact.minutes > 0 && ` (${fmtHours(impact.minutes)} hrs)`}
+        {impact.projects > 0 && `, ${impact.projects} project${impact.projects === 1 ? '' : 's'}`}
+        {impact.contacts > 0 && `, and signs out ${impact.contacts} portal contact${impact.contacts === 1 ? '' : 's'}`}.
+        Past weeks will stop showing this company, so an invoiced week will look
+        different afterwards and its CSV will change.
+      </p>
+      <p className="portal-dim">
+        Nothing is deleted. Restoring puts every hour back exactly as it was.
+      </p>
+      <div className="portal-publish-actions">
+        <button className="btn btn-sm portal-danger-btn" onClick={onConfirm}>
+          Archive {client.name}
+        </button>
+        <button className="btn btn-outline btn-sm" onClick={onCancel}>Cancel</button>
+      </div>
+    </div>
   )
 }
 

@@ -77,6 +77,62 @@ router.patch('/clients/:id', h(async (req, res) => {
   res.json(updated)
 }))
 
+/* ── Archiving ───────────────────────────────────────────────────────────
+   Soft, like everything else here. The clients row, its projects, its sessions
+   and its entries all stay exactly where they are — archiving only removes the
+   company from view. Restoring brings all of it back untouched.
+
+   Archived companies drop out of the whole owner-facing app, totals included,
+   which is what keeps the visible rows and the totals reconciling. The cost,
+   accepted deliberately: a week you already invoiced will render differently
+   afterwards, and its CSV will change. */
+
+router.post('/clients/:id/archive', h(async (req, res) => {
+  const client = await q1(null, 'SELECT * FROM clients WHERE id = ?', [req.params.id])
+  if (!client) throw httpError(404, 'client not found')
+
+  // Archiving mid-session would make the running clock vanish from the Clock
+  // screen with no way to close it out.
+  const running = await q1(null,
+    'SELECT id FROM sessions WHERE client_id = ? AND clock_out IS NULL', [client.id])
+  if (running) throw httpError(409, 'clock out of this client before archiving them')
+
+  const updated = await q1(null,
+    'UPDATE clients SET is_active = 0 WHERE id = ? RETURNING *', [client.id])
+  await audit(req, 'client_archived', {
+    user: req.portalUser, clientId: client.id, detail: client.name,
+  })
+  res.json(updated)
+}))
+
+router.post('/clients/:id/restore', h(async (req, res) => {
+  const client = await q1(null, 'SELECT * FROM clients WHERE id = ?', [req.params.id])
+  if (!client) throw httpError(404, 'client not found')
+  const updated = await q1(null,
+    'UPDATE clients SET is_active = 1 WHERE id = ? RETURNING *', [client.id])
+  await audit(req, 'client_restored', {
+    user: req.portalUser, clientId: client.id, detail: client.name,
+  })
+  res.json(updated)
+}))
+
+// What archiving would hide, so the confirmation can say so rather than making
+// the owner guess.
+router.get('/clients/:id/impact', h(async (req, res) => {
+  const client = await q1(null, 'SELECT * FROM clients WHERE id = ?', [req.params.id])
+  if (!client) throw httpError(404, 'client not found')
+  const one = async (sql) => Number((await q1(null, sql, [client.id]))?.n || 0)
+  res.json({
+    sessions: await one('SELECT COUNT(*) AS n FROM sessions WHERE client_id = ?'),
+    minutes: Number((await q1(null,
+      'SELECT COALESCE(SUM(duration_minutes),0) AS n FROM sessions WHERE client_id = ?',
+      [client.id]))?.n || 0),
+    projects: await one('SELECT COUNT(*) AS n FROM projects WHERE client_id = ?'),
+    contacts: await one("SELECT COUNT(*) AS n FROM portal_users WHERE client_id = ? AND role = 'client'"),
+    running: await one('SELECT COUNT(*) AS n FROM sessions WHERE client_id = ? AND clock_out IS NULL'),
+  })
+}))
+
 /* ── Invites ─────────────────────────────────────────────────────────── */
 
 router.post('/invite', h(async (req, res) => {

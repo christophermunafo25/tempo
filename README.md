@@ -149,6 +149,31 @@ list and clock-out prefill until you *Accept* them. Accepting records a
 where it came from. *Decline* is soft, takes a reason the client will see, and
 never deletes the row.
 
+## Archiving a client
+
+There is no hard delete. **Portal → Access → Archive this company** sets
+`clients.is_active = 0` and nothing else: the client row, its projects, its
+sessions and every summary you wrote all stay exactly where they are.
+Restoring puts every hour back to the minute.
+
+Archiving hides the company **everywhere** — the Clock picker, the Board, the
+Dashboard, Timesheets, the Archive, clock-out prefill, and its own client
+portal. That is deliberate: rows and totals have to move together, or a
+timesheet shows a total that its visible rows don't add up to. The cost, taken
+knowingly: **a week you already invoiced will render differently afterwards,
+and its CSV will change.** Restore the company to reproduce the original.
+
+Its portal contacts lose access on their very next request, cannot sign in,
+and cannot redeem an outstanding invite or reset link. All of that reverses on
+restore, with no per-person bookkeeping to get out of step — a contact's access
+simply follows their company.
+
+You can't archive a company you're currently clocked into; clock out first, or
+the running timer would vanish with no way to close it.
+
+Archived companies stay listed under **Portal → Access → Archived**, which is
+the only place they appear and where you restore them from.
+
 ## What a client sees
 
 Their own shell at `/portal`, with three screens and none of the owner nav —

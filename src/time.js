@@ -169,16 +169,24 @@ export function matchPreset(from, to, today = new Date()) {
   return null
 }
 
+function saveFile(filename, blob) {
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
+
+const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
+export const downloadXLSX = (filename, bytes) =>
+  saveFile(filename, new Blob([bytes], { type: XLSX_TYPE }))
+
 export function downloadCSV(filename, rows) {
   const esc = (v) => {
     const s = String(v ?? '')
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
   }
   const text = rows.map(r => r.map(esc).join(',')).join('\n')
-  const blob = new Blob([text], { type: 'text/csv;charset=utf-8' })
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(a.href)
+  saveFile(filename, new Blob([text], { type: 'text/csv;charset=utf-8' }))
 }

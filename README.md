@@ -217,6 +217,54 @@ Nothing in any of this reads `expenses`. That table is personal overhead and
 has no path to a client; a test asserts a sentinel expense never appears in any
 client-reachable response.
 
+## The spreadsheet export
+
+Both the portal and a share link offer **Download spreadsheet** beside the CSV.
+The `.xlsx` is built in the browser from the same filtered array the table is
+showing, through the same row builder — so the file and the screen are three
+renderings of one array rather than two code paths that might disagree.
+
+**Sheet 1, "Hours"** — one row per session: date, hours, and (when the company
+has amounts switched on) rate and amount, then projects and notes.
+
+- The date is a **real date value**, not text, so Excel and Sheets can filter
+  and sort it as a date. A text date breaks every date filter a client would
+  reach for, which would defeat the point of the export.
+- Hours, rate and amount are **numbers with formats**, never pre-formatted
+  strings.
+- The header row is **frozen** and carries an **AutoFilter**, so the recipient
+  can narrow the range further without coming back to you.
+- The totals row uses **`SUBTOTAL(109, …)`** rather than `SUM`, and sits below
+  the filter range. Filter to July and the total becomes July's. That is what
+  makes "filterable by time frame" true inside the file and not only at the
+  moment of download.
+- Rates are deliberately **not** totalled. A summed hourly rate is meaningless.
+
+**Sheet 2, "Summary"** — company, the range covered, when it was generated, the
+time zone the dates are in, totals, and the per-project breakdown **carrying
+the same estimate caveat the screen shows**. Hours are clocked per company and
+split evenly across the projects in a session, and the file has to say so: a
+spreadsheet outlives the screen it came from, and by the time it is forwarded
+nobody remembers the figures are derived.
+
+Filename: `tempo-hours-{company}-{from}-to-{to}.xlsx`, with `all` where a bound
+is open.
+
+### Why the writer is hand-rolled
+
+An `.xlsx` is a zip of a few XML parts, and `server`-free code to write the
+subset TEMPO needs is about 300 lines. The alternative was a dependency: the
+`xlsx` package on npm is stuck at 0.18.5 because SheetJS moved distribution to
+its own CDN, so the prototype-pollution fix never shipped to npm and there is
+no upgrade path from there; `exceljs` pulls nine transitive packages in to
+write six columns. For an app with no runtime dependencies of its own that
+holds billing data, neither trade was worth making for a format we only ever
+write, never parse.
+
+Entries are stored uncompressed, so no compression API is involved at all and
+the writer runs unchanged in a browser and under `node --test`. At a few
+hundred rows the size difference is irrelevant.
+
 ## Share links: access without a login
 
 Most clients will not create an account. **Portal → Access → Share links →

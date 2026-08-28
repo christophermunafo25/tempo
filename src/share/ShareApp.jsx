@@ -3,9 +3,10 @@ import { useParams } from 'react-router-dom'
 import { shareGet, cleanParams } from './api.js'
 import { ClientDot, EmptyState } from '../components/ui.jsx'
 import {
-  fmtHours, fmtMoney, downloadCSV, RANGE_PRESETS, presetRange, matchPreset,
+  fmtHours, fmtMoney, downloadCSV, downloadXLSX, RANGE_PRESETS, presetRange, matchPreset,
 } from '../time.js'
 import { csvRows, totalHours, totalAmount, hasMoney } from '../portal/csv.js'
+import { hoursWorkbook, workbookFilename } from '../portal/workbook.js'
 import HoursTable from '../components/HoursTable.jsx'
 
 const PER_PAGE = 25
@@ -28,7 +29,7 @@ export default function ShareApp() {
   const [page, setPage] = useState(1)
   const [data, setData] = useState(null)
   const [breakdown, setBreakdown] = useState(null)
-  const [exporting, setExporting] = useState(false)
+  const [exporting, setExporting] = useState('')
 
   const [theme, setTheme] = useState(() => localStorage.getItem('tempo-theme') || 'light')
   useEffect(() => {
@@ -64,17 +65,41 @@ export default function ShareApp() {
   }
   const activePreset = matchPreset(filters.from, filters.to)
 
+  const fetchAll = () => shareGet(token, '/export', query)
+  const stamp = () => [filters.from, filters.to].filter(Boolean).join('_') || 'all'
+
   const exportCSV = async () => {
-    setExporting(true)
+    setExporting('csv')
     try {
-      const all = await shareGet(token, '/export', query)
-      const stamp = [filters.from, filters.to].filter(Boolean).join('_') || 'all'
-      const company = (summary?.company.name || 'hours').replace(/[^a-z0-9]+/gi, '-').toLowerCase()
-      downloadCSV(`tempo-hours-${company}-${stamp}.csv`, csvRows(all.sessions))
+      const company = (summary?.company.name || 'hours')
+        .replace(/[^a-z0-9]+/gi, '-').toLowerCase()
+      downloadCSV(`tempo-hours-${company}-${stamp()}.csv`, csvRows((await fetchAll()).sessions))
     } catch (e) {
       fail(e)
     } finally {
-      setExporting(false)
+      setExporting('')
+    }
+  }
+
+  const exportXLSX = async () => {
+    setExporting('xlsx')
+    try {
+      const all = await fetchAll()
+      downloadXLSX(
+        workbookFilename(summary?.company.name, filters.from, filters.to),
+        hoursWorkbook({
+          sessions: all.sessions,
+          company: summary?.company.name,
+          from: filters.from,
+          to: filters.to,
+          timeZone: summary?.time_zone,
+          breakdown: breakdown?.projects,
+        }),
+      )
+    } catch (e) {
+      fail(e)
+    } finally {
+      setExporting('')
     }
   }
 
@@ -158,9 +183,13 @@ export default function ShareApp() {
             </select>
           </label>
           <span className="spacer" />
-          <button className="btn btn-sm" onClick={exportCSV}
-            disabled={exporting || !data || data.total === 0}>
-            {exporting ? 'Preparing…' : 'Download CSV'}
+          <button className="btn btn-sm" onClick={exportXLSX}
+            disabled={!!exporting || !data || data.total === 0}>
+            {exporting === 'xlsx' ? 'Building…' : 'Download spreadsheet'}
+          </button>
+          <button className="btn btn-outline btn-sm" onClick={exportCSV}
+            disabled={!!exporting || !data || data.total === 0}>
+            {exporting === 'csv' ? 'Preparing…' : 'CSV'}
           </button>
         </div>
 

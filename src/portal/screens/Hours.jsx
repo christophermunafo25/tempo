@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { pget, ppost } from '../api.js'
 import { EmptyState } from '../../components/ui.jsx'
 import {
-  fmtHours, fmtMoney, downloadCSV, RANGE_PRESETS, presetRange, matchPreset,
+  fmtHours, fmtMoney, downloadCSV, downloadXLSX, RANGE_PRESETS, presetRange, matchPreset,
 } from '../../time.js'
 import { csvRows, totalHours, totalAmount, hasMoney } from '../csv.js'
+import { hoursWorkbook, workbookFilename } from '../workbook.js'
 import HoursTable from '../../components/HoursTable.jsx'
 
 const PER_PAGE = 25
@@ -14,11 +15,17 @@ export default function Hours() {
   const [page, setPage] = useState(1)
   const [data, setData] = useState(null)
   const [projects, setProjects] = useState([])
+  const [meta, setMeta] = useState({ company: '', timeZone: '' })
   const [breakdown, setBreakdown] = useState(null)
   const [error, setError] = useState('')
-  const [exporting, setExporting] = useState(false)
+  const [exporting, setExporting] = useState('')
 
-  useEffect(() => { pget('/projects').then(setProjects).catch(() => {}) }, [])
+  useEffect(() => {
+    pget('/projects').then(setProjects).catch(() => {})
+    pget('/summary')
+      .then(s => setMeta({ company: s.company.name, timeZone: s.time_zone }))
+      .catch(() => {})
+  }, [])
 
   const query = useMemo(() => {
     const p = new URLSearchParams()
@@ -45,22 +52,47 @@ export default function Hours() {
   const clear = () => { setFilters({ from: '', to: '', project_id: '' }); setPage(1) }
   const filtered = filters.from || filters.to || filters.project_id
 
-  // The export re-fetches the same filter unpaginated and writes an audit row,
-  // then hands the identical array to the same row builder the table uses.
+  // Both exports re-fetch the same filter unpaginated and write an audit row,
+  // then hand the identical array to the same row builder the table uses —
+  // which is what makes the file and the screen provably the same rows.
+  const fetchAll = async () => ppost('/export', {
+    from: filters.from || undefined,
+    to: filters.to || undefined,
+    project_id: filters.project_id || undefined,
+  })
+
+  const stamp = () => [filters.from, filters.to].filter(Boolean).join('_') || 'all'
+
   const exportCSV = async () => {
-    setExporting(true)
+    setExporting('csv')
     try {
-      const all = await ppost('/export', {
-        from: filters.from || undefined,
-        to: filters.to || undefined,
-        project_id: filters.project_id || undefined,
-      })
-      const stamp = [filters.from, filters.to].filter(Boolean).join('_') || 'all'
-      downloadCSV(`hours-${stamp}.csv`, csvRows(all.sessions))
+      downloadCSV(`hours-${stamp()}.csv`, csvRows((await fetchAll()).sessions))
     } catch (e) {
       setError(e.message)
     } finally {
-      setExporting(false)
+      setExporting('')
+    }
+  }
+
+  const exportXLSX = async () => {
+    setExporting('xlsx')
+    try {
+      const all = await fetchAll()
+      downloadXLSX(
+        workbookFilename(meta.company, filters.from, filters.to),
+        hoursWorkbook({
+          sessions: all.sessions,
+          company: meta.company,
+          from: filters.from,
+          to: filters.to,
+          timeZone: meta.timeZone,
+          breakdown: breakdown?.projects,
+        }),
+      )
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setExporting('')
     }
   }
 
@@ -101,9 +133,13 @@ export default function Hours() {
         </label>
         {filtered && <button className="btn-ghost btn-sm" onClick={clear}>Clear</button>}
         <span className="spacer" />
-        <button className="btn btn-sm" onClick={exportCSV}
-          disabled={exporting || !data || data.total === 0}>
-          {exporting ? 'Preparing…' : 'Download CSV'}
+        <button className="btn btn-sm" onClick={exportXLSX}
+          disabled={!!exporting || !data || data.total === 0}>
+          {exporting === 'xlsx' ? 'Building…' : 'Download spreadsheet'}
+        </button>
+        <button className="btn btn-outline btn-sm" onClick={exportCSV}
+          disabled={!!exporting || !data || data.total === 0}>
+          {exporting === 'csv' ? 'Preparing…' : 'CSV'}
         </button>
       </div>
 

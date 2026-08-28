@@ -215,6 +215,12 @@ const ADD_COLUMNS = [
   ['projects', 'description',        'TEXT'],
   ['projects', 'portal_request',     'TEXT'],
   ['projects', 'requested_by',       'INTEGER'],
+  ['clients',  'hourly_rate',        'REAL NOT NULL DEFAULT 0'],
+  // Nullable with no default: the safest possible ADD COLUMN on both engines,
+  // and it needs no backfill. NULL means "published before this shipped, or
+  // published with no rate set" — which reports as a blank amount, never a
+  // zero. Zero is a claim; blank is the truth.
+  ['sessions', 'rate_applied',       'REAL'],
 ]
 
 // Arbitrary fixed key. Parallel Vercel cold starts all run init(); racing

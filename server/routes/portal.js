@@ -13,7 +13,7 @@ import {
   resolveRange, localToday, localWeekStart, localMonthStart, startOfLocalDay,
   addLocalDays, portalTz, listProjectsFor, projectDetail, unreadTotal,
   listComments, addComment, markRead, recordRevision, portalProject, validComment,
-  summaryFor,
+  summaryFor, moneyPolicy,
 } from '../portal-query.js'
 
 const router = express.Router()
@@ -82,8 +82,9 @@ function pageParams(req) {
 
 router.get('/summary', h(async (req, res) => {
   const clientId = scopeOf(req)
+  const money = await moneyPolicy(clientId)
   const [summary, unread] = await Promise.all([
-    summaryFor(clientId),
+    summaryFor(clientId, { money }),
     unreadTotal(clientId, req.portalUser.id),
   ])
   res.json({ ...summary, unread_comments: unread })
@@ -97,7 +98,8 @@ router.get('/sessions', h(async (req, res) => {
   const { from, to } = resolveRange(req.query)
   const { limit, offset, page, perPage } = pageParams(req)
 
-  const result = await listSessions({ clientId, from, to, projectId, limit, offset })
+  const money = await moneyPolicy(clientId)
+  const result = await listSessions({ clientId, from, to, projectId, limit, offset, money })
   res.json({ ...result, page, per_page: perPage })
 }))
 
@@ -109,7 +111,7 @@ router.post('/export', h(async (req, res) => {
   const projectId = await resolveProjectFilter(req, clientId)
   const { from, to } = resolveRange(req.body || {})
 
-  const result = await listSessions({ clientId, from, to, projectId })
+  const result = await listSessions({ clientId, from, to, projectId, money: await moneyPolicy(clientId) })
   await audit(req, 'export', {
     user: req.portalUser,
     clientId,
@@ -230,7 +232,7 @@ router.get('/breakdown', h(async (req, res) => {
   res.json({
     estimate: true,
     basis: 'Each session is split evenly across the projects worked on in it.',
-    projects: await breakdown({ clientId, from, to, projectId }),
+    projects: await breakdown({ clientId, from, to, projectId, money: await moneyPolicy(clientId) }),
   })
 }))
 

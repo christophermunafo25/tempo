@@ -8,7 +8,7 @@ import { h, httpError } from '../http.js'
 import { requireShareLink, shareScope } from '../share.js'
 import { audit } from '../auth.js'
 import {
-  listSessions, breakdown, listProjects, ownedProject, resolveRange, summaryFor,
+  listSessions, breakdown, listProjects, ownedProject, resolveRange, summaryFor, moneyPolicy,
 } from '../portal-query.js'
 
 const router = express.Router()
@@ -34,7 +34,13 @@ router.use('/:token', h(async (req, res, next) => {
   next()
 }))
 
-const notesOption = (req) => ({ notes: !!req.shareLink.shows_notes })
+// Notes follow the link's own setting; money follows the company's toggle.
+// Both resolved once per request and handed to portal-query, never decided in
+// a template.
+const readOptions = async (req) => ({
+  notes: !!req.shareLink.shows_notes,
+  money: await moneyPolicy(shareScope(req)),
+})
 
 // A project filter resolves through the link's own company, so another
 // company's id is not an error to explain — it simply isn't here.
@@ -52,7 +58,7 @@ function pageParams(req) {
 }
 
 router.get('/:token/summary', h(async (req, res) => {
-  res.json(await summaryFor(shareScope(req), notesOption(req)))
+  res.json(await summaryFor(shareScope(req), await readOptions(req)))
 }))
 
 router.get('/:token/sessions', h(async (req, res) => {
@@ -62,7 +68,7 @@ router.get('/:token/sessions', h(async (req, res) => {
   const { limit, offset, page, perPage } = pageParams(req)
 
   const result = await listSessions({
-    clientId, from, to, projectId, limit, offset, ...notesOption(req),
+    clientId, from, to, projectId, limit, offset, ...(await readOptions(req)),
   })
   res.json({ ...result, page, per_page: perPage })
 }))
@@ -79,7 +85,9 @@ router.get('/:token/breakdown', h(async (req, res) => {
   res.json({
     estimate: true,
     basis: 'Each session is split evenly across the projects worked on in it.',
-    projects: await breakdown({ clientId, from, to, projectId }),
+    projects: await breakdown({
+      clientId, from, to, projectId, money: await moneyPolicy(clientId),
+    }),
   })
 }))
 
@@ -91,7 +99,9 @@ router.get('/:token/export', h(async (req, res) => {
   const projectId = await resolveProjectFilter(req, clientId)
   const { from, to } = resolveRange(req.query)
 
-  const result = await listSessions({ clientId, from, to, projectId, ...notesOption(req) })
+  const result = await listSessions({
+    clientId, from, to, projectId, ...(await readOptions(req)),
+  })
   await audit(req, 'export', {
     clientId,
     detail: `share link${req.shareLink.label ? ` "${req.shareLink.label}"` : ''}: ` +

@@ -62,7 +62,7 @@ async function pendingInvites(ids) {
 router.get('/clients', h(async (req, res) => {
   const clients = await q(null, `
     SELECT id, name, color_accent, is_active, weekly_hours_target,
-           portal_enabled, portal_shows_rates
+           portal_enabled, portal_shows_rates, hourly_rate
     FROM clients ORDER BY name`)
   const out = []
   for (const client of clients) {
@@ -72,6 +72,10 @@ router.get('/clients', h(async (req, res) => {
       ...client,
       contacts: contacts.map(c => ({ ...c, invite_pending: pending.has(c.id) ? 1 : 0 })),
       share_links: await shareLinksFor(client.id),
+      unpriced_published: Number((await q1(null, `
+        SELECT COUNT(*) AS n FROM sessions
+        WHERE client_id = ? AND is_published = 1 AND rate_applied IS NULL`,
+        [client.id]))?.n || 0),
     })
   }
   res.json(out)
@@ -100,10 +104,26 @@ router.patch('/clients/:id', h(async (req, res) => {
     if (!HEX.test(color)) throw httpError(400, 'accent colour must be a hex value like #6B93C4')
   }
 
+  // Changing the rate affects only sessions published afterwards. Work a
+  // client has already been shown keeps the number it was shown, unless the
+  // owner deliberately re-applies it (below).
+  let rate = client.hourly_rate
+  if (req.body.hourly_rate !== undefined) {
+    // null is not zero: JSON turns NaN and Infinity into null, so accepting it
+    // would let a malformed number quietly wipe a company's rate.
+    if (req.body.hourly_rate === null) throw httpError(400, 'hourly rate must be a number')
+    rate = Number(req.body.hourly_rate)
+    if (!Number.isFinite(rate) || rate < 0 || rate > 100000) {
+      throw httpError(400, 'hourly rate must be a number between 0 and 100000')
+    }
+    rate = Math.round(rate * 100) / 100
+  }
+
   const updated = await q1(null, `
-    UPDATE clients SET name = ?, color_accent = ?, portal_enabled = ?, portal_shows_rates = ?
+    UPDATE clients SET name = ?, color_accent = ?, hourly_rate = ?,
+                       portal_enabled = ?, portal_shows_rates = ?
     WHERE id = ? RETURNING *`,
-    [name, color,
+    [name, color, rate,
      flag(req.body.portal_enabled, client.portal_enabled),
      flag(req.body.portal_shows_rates, client.portal_shows_rates),
      client.id])
@@ -114,6 +134,12 @@ router.patch('/clients/:id', h(async (req, res) => {
     await audit(req, 'client_renamed', {
       user: req.portalUser, clientId: client.id,
       detail: `${client.name} → ${updated.name}`,
+    })
+  }
+  if (updated.hourly_rate !== client.hourly_rate) {
+    await audit(req, 'rate_changed', {
+      user: req.portalUser, clientId: client.id,
+      detail: `${client.hourly_rate} → ${updated.hourly_rate} (applies to work published from now on)`,
     })
   }
   if (updated.color_accent !== client.color_accent) {
@@ -406,6 +432,15 @@ router.post('/publish', h(async (req, res) => {
   const args = [client.id, from, to]
   const { n } = await q1(null, `SELECT COUNT(*) AS n FROM sessions WHERE ${where}`, args)
   await q(null, `UPDATE sessions SET is_published = ? WHERE ${where}`, [publish, ...args])
+
+  // Stamp the rate only where none is set. Publishing is the moment a number
+  // becomes something a client can budget against, and un-publishing and
+  // re-publishing must not quietly reprice it at whatever the rate happens to
+  // be later. Deliberate repricing is the explicit action below.
+  if (publish && Number(client.hourly_rate) > 0) {
+    await q(null, `UPDATE sessions SET rate_applied = ?
+      WHERE ${where} AND rate_applied IS NULL`, [client.hourly_rate, ...args])
+  }
   await audit(req, 'publish', {
     user: req.portalUser,
     clientId: client.id,
@@ -419,6 +454,13 @@ router.patch('/sessions/:id', h(async (req, res) => {
   const session = await q1(null, 'SELECT * FROM sessions WHERE id = ?', [req.params.id])
   if (!session) throw httpError(404, 'session not found')
   const publish = req.body?.is_published ? 1 : 0
+  if (publish && session.rate_applied == null) {
+    const client = await q1(null, 'SELECT hourly_rate FROM clients WHERE id = ?', [session.client_id])
+    if (Number(client?.hourly_rate) > 0) {
+      await q(null, 'UPDATE sessions SET rate_applied = ? WHERE id = ? AND rate_applied IS NULL',
+        [client.hourly_rate, session.id])
+    }
+  }
   const updated = await q1(null,
     'UPDATE sessions SET is_published = ? WHERE id = ? RETURNING *', [publish, session.id])
   await audit(req, 'publish', {
@@ -427,6 +469,52 @@ router.patch('/sessions/:id', h(async (req, res) => {
     detail: `${publish ? 'published' : 'unpublished'} session ${session.id}`,
   })
   res.json(updated)
+}))
+
+/* ── Applying a rate to work already published ───────────────────────────
+   Deliberately a button rather than something that happens on its own. A
+   silent backfill of billing data is the kind of thing that goes unnoticed
+   until it is wrong, and repricing work a client has already budgeted against
+   should take a decision. */
+
+router.get('/clients/:id/rate-impact', h(async (req, res) => {
+  const client = await q1(null, 'SELECT * FROM clients WHERE id = ?', [req.params.id])
+  if (!client) throw httpError(404, 'client not found')
+  const one = async (extra) => Number((await q1(null,
+    `SELECT COUNT(*) AS n FROM sessions
+     WHERE client_id = ? AND is_published = 1 AND clock_out IS NOT NULL ${extra}`,
+    [client.id]))?.n || 0)
+
+  res.json({
+    hourly_rate: client.hourly_rate,
+    unpriced: await one('AND rate_applied IS NULL'),
+    priced: await one('AND rate_applied IS NOT NULL'),
+    at_current_rate: await one(`AND rate_applied = ${Number(client.hourly_rate) || 0}`),
+  })
+}))
+
+router.post('/clients/:id/apply-rate', h(async (req, res) => {
+  const client = await q1(null, 'SELECT * FROM clients WHERE id = ?', [req.params.id])
+  if (!client) throw httpError(404, 'client not found')
+  if (!(Number(client.hourly_rate) > 0)) {
+    throw httpError(400, 'set an hourly rate for this company first')
+  }
+
+  // 'missing' fills in only what has never been priced — the backfill for work
+  // published before rates existed. 'all' reprices everything published, which
+  // changes numbers a client may already have seen, so it is never the default.
+  const all = req.body?.mode === 'all'
+  const where = `client_id = ? AND is_published = 1 AND clock_out IS NOT NULL` +
+    (all ? '' : ' AND rate_applied IS NULL')
+
+  const { n } = await q1(null, `SELECT COUNT(*) AS n FROM sessions WHERE ${where}`, [client.id])
+  await q(null, `UPDATE sessions SET rate_applied = ? WHERE ${where}`, [client.hourly_rate, client.id])
+
+  await audit(req, 'rate_applied', {
+    user: req.portalUser, clientId: client.id,
+    detail: `${client.hourly_rate} applied to ${n} ${all ? 'published' : 'unpriced'} session(s)`,
+  })
+  res.json({ affected: Number(n), hourly_rate: client.hourly_rate, mode: all ? 'all' : 'missing' })
 }))
 
 /* ── Requests ────────────────────────────────────────────────────────────

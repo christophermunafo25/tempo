@@ -182,7 +182,7 @@ around DDL that could hide a real failure.
 | Table      | Column                | DDL                          | Why |
 |------------|-----------------------|------------------------------|-----|
 | `clients`  | `portal_enabled`      | `INTEGER NOT NULL DEFAULT 0` | Portal on/off per company |
-| `clients`  | `portal_shows_rates`  | `INTEGER NOT NULL DEFAULT 0` | See open question 1 — currently gates nothing |
+| `clients`  | `portal_shows_rates`  | `INTEGER NOT NULL DEFAULT 0` | Gates money in every client-reachable response (shipped; open question 1 resolved) |
 | `sessions` | `is_published`        | `INTEGER NOT NULL DEFAULT 0` | Nothing client-visible until published |
 | `projects` | `description`         | `TEXT`                       | The brief. New — clients need something to actually edit |
 | `projects` | `portal_request`      | `TEXT`                       | NULL = real project, `'pending'`, `'declined'` |
@@ -856,7 +856,11 @@ Open question 5.
 
 ## 10. Open questions
 
-1. **`portal_shows_rates` gates nothing that exists.** There is no rate,
+1. **RESOLVED.** `clients.hourly_rate` and `sessions.rate_applied` shipped;
+   the toggle now gates money in every client-reachable response, and rates are
+   snapshotted at publish time. See the README. Original question follows.
+
+   **`portal_shows_rates` gates nothing that exists.** There is no rate,
    amount, or dollar column on `clients` anywhere — the only money in the
    database is `expenses.amount`, which clients must never see. As specified
    it ships as a no-op toggle. Add `clients.hourly_rate` and show hours ×

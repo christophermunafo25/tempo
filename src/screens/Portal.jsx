@@ -3,7 +3,7 @@ import { get, post, patch } from '../api.js'
 import { ClientDot, Checkbox, EmptyState, WeekStepper } from '../components/ui.jsx'
 import Thread from '../components/Thread.jsx'
 import {
-  weekRange, fmtRange, fmtDate, fmtTime, fmtHours, localDayKey, CLIENT_COLORS,
+  weekRange, fmtRange, fmtDate, fmtTime, fmtHours, localDayKey, CLIENT_COLORS, fmtMoney,
 } from '../time.js'
 
 const TABS = [
@@ -183,13 +183,11 @@ function CompanyCard({ client, onChange, style }) {
               label={`Portal access for ${client.name}`} />
             <span>Portal access</span>
           </label>
-          {/* This flag has nothing to reveal yet — there is no rate column on
-              clients. Kept visible but labelled so it isn't mistaken for live. */}
           <label className="portal-toggle">
             <Checkbox checked={!!client.portal_shows_rates}
               onChange={() => toggle('portal_shows_rates', !client.portal_shows_rates)}
-              label={`Show rates to ${client.name}`} />
-            <span>Show rates <em>(not wired up)</em></span>
+              label={`Show amounts to ${client.name}`} />
+            <span>Show amounts</span>
           </label>
         </div>
       </header>
@@ -249,6 +247,8 @@ function CompanyCard({ client, onChange, style }) {
 
       {link && <LinkBox link={link} onDismiss={() => setLink(null)} />}
 
+      <RateStatus client={client} onChange={onChange} />
+
       <ShareLinks client={client} onChange={onChange} />
 
       {impact
@@ -262,6 +262,63 @@ function CompanyCard({ client, onChange, style }) {
           </div>
         )}
     </section>
+  )
+}
+
+/* What this company's clients can see about money, and the one action that
+   changes a number they may already have seen. */
+function RateStatus({ client, onChange }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const rate = Number(client.hourly_rate) || 0
+  const unpriced = client.unpriced_published || 0
+  const showing = !!client.portal_shows_rates && rate > 0
+
+  const apply = (mode) => async () => {
+    setBusy(true); setError('')
+    try {
+      await post(`/access/clients/${client.id}/apply-rate`, { mode })
+      onChange()
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="portal-share">
+      <div className="portal-publish-head">
+        <div>
+          <div className="label">Rate</div>
+          <p className="portal-dim">
+            {rate > 0 ? `${fmtMoney(rate)} an hour` : 'No rate set'} ·{' '}
+            {showing
+              ? 'clients see amounts alongside hours'
+              : 'amounts are not sent to this company at all'}
+          </p>
+        </div>
+      </div>
+
+      {rate > 0 && unpriced > 0 && (
+        <div className="portal-confirm">
+          <div className="label">{unpriced} published session{unpriced === 1 ? '' : 's'} with no rate</div>
+          <p className="portal-dim">
+            Published before a rate existed, so they show a blank amount rather
+            than a zero. Applying the current rate fills them in and changes
+            nothing that already has one.
+          </p>
+          <div className="portal-publish-actions">
+            <button className="btn btn-sm" disabled={busy} onClick={apply('missing')}>
+              Apply {fmtMoney(rate)} to those {unpriced}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {error && <p className="field-error">{error}</p>}
+    </div>
   )
 }
 
@@ -458,16 +515,21 @@ function ShareUrlBox({ minted, onDismiss }) {
 function ClientDetails({ client, onDone, onCancel }) {
   const [name, setName] = useState(client.name)
   const [color, setColor] = useState(client.color_accent)
+  const [rate, setRate] = useState(String(client.hourly_rate ?? 0))
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const dirty = name.trim() !== client.name || color !== client.color_accent
+  const dirty = name.trim() !== client.name
+    || color !== client.color_accent
+    || Number(rate) !== Number(client.hourly_rate)
 
   const save = async (e) => {
     e.preventDefault()
     setBusy(true); setError('')
     try {
-      await patch(`/access/clients/${client.id}`, { name: name.trim(), color_accent: color })
+      await patch(`/access/clients/${client.id}`, {
+        name: name.trim(), color_accent: color, hourly_rate: Number(rate) || 0,
+      })
       onDone()
     } catch (err) {
       setError(err.message); setBusy(false)
@@ -493,6 +555,16 @@ function ClientDetails({ client, onDone, onCancel }) {
         <span className="auth-hint">
           Renaming changes this company everywhere, including on past
           timesheets and in the client’s own portal. Hours are untouched.
+        </span>
+      </div>
+      <div className="field">
+        <label className="label" htmlFor={`rate-${client.id}`}>Hourly rate</label>
+        <input id={`rate-${client.id}`} className="input" type="number" min="0" step="0.01"
+          value={rate} onChange={(e) => setRate(e.target.value)} />
+        <span className="auth-hint">
+          Applies to work published from now on. Sessions already published keep
+          the rate they were published at, so a number a client has budgeted
+          against never moves on its own.
         </span>
       </div>
       {error && <p className="field-error">{error}</p>}

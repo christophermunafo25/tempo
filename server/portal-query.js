@@ -74,6 +74,29 @@ export const localMonthStart = (dateStr = localToday()) => `${dateStr.slice(0, 7
 const PORTAL_STATUS = { questions: 'in_progress' }
 export const portalStatus = (status) => PORTAL_STATUS[status] ?? status
 
+/* ── Money ───────────────────────────────────────────────────────────────
+   Rates are snapshotted onto a session when it is published, so a later rate
+   change never silently reprices work a client has already seen. Amounts are
+   computed in integer cents and rounded once, at the row, so the screen, the
+   CSV, the spreadsheet and an invoice line item all agree — and so a quarter's
+   worth of sessions cannot accumulate float error into a total that is a penny
+   off the rows above it.
+
+   Nothing here reads `expenses`. That table is the owner's personal overhead
+   and has no path to a client. */
+
+export const amountCents = (minutes, rate) =>
+  rate == null ? null : Math.round((minutes / 60) * rate * 100)
+
+// Two conditions, both required: the company has the toggle on, and a rate is
+// actually configured. When either fails the money fields are omitted from the
+// response entirely rather than sent and hidden in the UI.
+export async function moneyPolicy(clientId) {
+  const c = await q1(null,
+    'SELECT portal_shows_rates, hourly_rate FROM clients WHERE id = ?', [clientId])
+  return { show: !!(c && c.portal_shows_rates && Number(c.hourly_rate) > 0) }
+}
+
 /* ── Session scope ───────────────────────────────────────────────────────
    client_id and is_published are not optional and are not parameters — they
    are the definition of what a client may see. */
@@ -140,7 +163,7 @@ export async function listSessions(opts) {
   }
 
   const rows = await q(null, `
-    SELECT s.id, s.clock_in, s.duration_minutes
+    SELECT s.id, s.clock_in, s.duration_minutes, s.rate_applied
     FROM sessions s WHERE ${sql}
     ORDER BY s.clock_in DESC, s.id DESC${page}`, [...args, ...pageArgs])
 
@@ -154,6 +177,8 @@ export async function listSessions(opts) {
     ? list.map(({ project_id, name }) => ({ project_id, name }))
     : list
 
+  const money = opts.money?.show === true
+
   return {
     total,
     sessions: rows.map(r => ({
@@ -161,15 +186,29 @@ export async function listSessions(opts) {
       date: localDate(r.clock_in, zone),
       duration_minutes: r.duration_minutes,
       projects: keep(entries.get(r.id) || []),
+      ...(money ? {
+        rate: r.rate_applied ?? null,
+        amount_cents: amountCents(r.duration_minutes, r.rate_applied),
+      } : {}),
     })),
   }
+}
+
+// Summed from the same per-row rounding the table shows, never from a SQL
+// SUM of unrounded values — the two disagree by a penny often enough to
+// matter, and SQLite and Postgres round floats differently at the half.
+export async function totalAmountCents(opts) {
+  const { sql, args } = scopeClause(opts)
+  const rows = await q(null,
+    `SELECT s.duration_minutes, s.rate_applied FROM sessions s WHERE ${sql}`, args)
+  return rows.reduce((a, r) => a + (amountCents(r.duration_minutes, r.rate_applied) || 0), 0)
 }
 
 /* The overview figures. Lives here rather than in a route so the two front
    doors — the logged-in portal and a share link — cannot drift apart on what
    "this week" means or which sessions count toward it. */
 
-export async function summaryFor(clientId, { notes = true } = {}) {
+export async function summaryFor(clientId, { notes = true, money } = {}) {
   const today = localToday()
   const weekStart = localWeekStart(today)
   const monthStart = localMonthStart(today)
@@ -178,10 +217,16 @@ export async function summaryFor(clientId, { notes = true } = {}) {
   const company = await q1(null,
     'SELECT id, name, color_accent, weekly_hours_target FROM clients WHERE id = ?', [clientId])
 
-  const [weekMinutes, monthMinutes, recent] = await Promise.all([
-    totalMinutes({ clientId, from: startOfLocalDay(weekStart), to: tomorrow }),
-    totalMinutes({ clientId, from: startOfLocalDay(monthStart), to: tomorrow }),
-    listSessions({ clientId, limit: 5, offset: 0, notes }),
+  const weekScope = { clientId, from: startOfLocalDay(weekStart), to: tomorrow }
+  const monthScope = { clientId, from: startOfLocalDay(monthStart), to: tomorrow }
+  const show = money?.show === true
+
+  const [weekMinutes, monthMinutes, recent, weekCents, monthCents] = await Promise.all([
+    totalMinutes(weekScope),
+    totalMinutes(monthScope),
+    listSessions({ clientId, limit: 5, offset: 0, notes, money }),
+    show ? totalAmountCents(weekScope) : null,
+    show ? totalAmountCents(monthScope) : null,
   ])
 
   return {
@@ -191,8 +236,16 @@ export async function summaryFor(clientId, { notes = true } = {}) {
       weekly_hours_target: company.weekly_hours_target,
     },
     time_zone: portalTz(),
-    week: { start: weekStart, minutes: weekMinutes },
-    month: { start: monthStart, minutes: monthMinutes },
+    week: {
+      start: weekStart,
+      minutes: weekMinutes,
+      ...(show ? { amount_cents: weekCents } : {}),
+    },
+    month: {
+      start: monthStart,
+      minutes: monthMinutes,
+      ...(show ? { amount_cents: monthCents } : {}),
+    },
     recent: recent.sessions,
     total_sessions: recent.total,
   }
@@ -210,32 +263,78 @@ export async function totalMinutes(opts) {
 // clocked per company and not per project, and the UI says so.
 export async function breakdown(opts) {
   const { sql, args } = scopeClause(opts)
+  // Aggregated in JS rather than by SQL GROUP BY, so minutes and money are
+  // derived from one pass over the same rows and cannot disagree, and so the
+  // rounding happens once per project row rather than inside two engines that
+  // round floats differently at the half.
   const rows = await q(null, `
-    SELECT e.project_id, p.name AS project_name,
-           SUM(s.duration_minutes / cnt.n) AS minutes
+    SELECT e.session_id, e.project_id, p.name AS project_name,
+           s.duration_minutes, s.rate_applied, cnt.n
     FROM session_entries e
     JOIN sessions s ON s.id = e.session_id
     JOIN projects p ON p.id = e.project_id
     JOIN (SELECT session_id, COUNT(*) AS n FROM session_entries GROUP BY session_id) cnt
       ON cnt.session_id = e.session_id
-    WHERE ${sql} AND p.client_id = ?
-    GROUP BY e.project_id, p.name`, [...args, opts.clientId])
+    WHERE ${sql} AND p.client_id = ?`, [...args, opts.clientId])
 
-  const projects = rows
-    .map(r => ({
-      project_id: r.project_id,
-      name: r.project_name,
-      minutes: Math.round(Number(r.minutes) * 100) / 100,
+  const money = opts.money?.show === true
+
+  // Money is split the way a bill is split: take the session's already-rounded
+  // cents and divide them as whole cents across its entries, handing the
+  // remainder to the first few. Rounding each project independently instead
+  // would let the column drift a few cents away from the total above it across
+  // a quarter's sessions — and a breakdown that doesn't add up reads as an
+  // accounting error on a screen this close to an invoice.
+  const bySession = new Map()
+  for (const r of rows) {
+    if (!bySession.has(r.session_id)) bySession.set(r.session_id, [])
+    bySession.get(r.session_id).push(r)
+  }
+
+  const acc = new Map()
+  for (const entries of bySession.values()) {
+    const { duration_minutes, rate_applied, n } = entries[0]
+    const cents = amountCents(duration_minutes, rate_applied) || 0
+    const base = Math.trunc(cents / n)
+    let remainder = cents - base * n
+
+    for (const r of entries) {
+      if (!acc.has(r.project_id)) {
+        acc.set(r.project_id, { project_id: r.project_id, name: r.project_name, minutes: 0, cents: 0 })
+      }
+      const a = acc.get(r.project_id)
+      a.minutes += duration_minutes / n
+      a.cents += base + (remainder > 0 ? 1 : 0)
+      if (remainder > 0) remainder -= 1
+    }
+  }
+
+  const projects = [...acc.values()]
+    .map(a => ({
+      project_id: a.project_id,
+      name: a.name,
+      minutes: Math.round(a.minutes * 100) / 100,
+      ...(money ? { amount_cents: a.cents } : {}),
     }))
     .sort((a, b) => b.minutes - a.minutes)
 
   // Sessions logged without any project attached have nowhere to be prorated
   // to. Dropping them would leave the breakdown quietly summing to less than
   // the headline total, which on an invoice-adjacent screen reads as an error.
+  // The residual row also absorbs the per-row rounding, so the breakdown adds
+  // up to the total exactly rather than approximately.
   const attributed = projects.reduce((a, p) => a + p.minutes, 0)
   const total = await totalMinutes(opts)
   const untagged = Math.round((total - attributed) * 100) / 100
-  if (untagged > 0.01) projects.push({ project_id: null, name: '(untagged)', minutes: untagged })
+
+  if (untagged > 0.01) {
+    const row = { project_id: null, name: '(untagged)', minutes: untagged }
+    if (money) {
+      const attributedCents = projects.reduce((a, p) => a + (p.amount_cents || 0), 0)
+      row.amount_cents = (await totalAmountCents(opts)) - attributedCents
+    }
+    projects.push(row)
+  }
 
   return projects
 }

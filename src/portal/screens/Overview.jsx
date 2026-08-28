@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { pget } from '../api.js'
 import { EmptyState } from '../../components/ui.jsx'
-import { fmtHours, fmtDuration } from '../../time.js'
+import { fmtHours, fmtDuration, fmtMoney } from '../../time.js'
 import { projectNames } from '../csv.js'
 
 export default function Overview() {
@@ -42,7 +42,11 @@ export default function Overview() {
         <div className="card stat rise" style={{ '--i': 1 }}>
           <div className="label">This month</div>
           <div className="stat-value mono">{fmtHours(summary.month.minutes)}</div>
-          <div className="portal-dim">hours logged</div>
+          <div className="portal-dim">
+            {summary.month.amount_cents != null
+              ? `hours · ${fmtMoney(summary.month.amount_cents / 100)}`
+              : 'hours logged'}
+          </div>
         </div>
 
         <div className="card stat rise" style={{ '--i': 2 }}>

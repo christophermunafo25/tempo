@@ -3,9 +3,10 @@ import { useParams } from 'react-router-dom'
 import { shareGet, cleanParams } from './api.js'
 import { ClientDot, EmptyState } from '../components/ui.jsx'
 import {
-  fmtDuration, fmtHours, downloadCSV, RANGE_PRESETS, presetRange, matchPreset,
+  fmtHours, fmtMoney, downloadCSV, RANGE_PRESETS, presetRange, matchPreset,
 } from '../time.js'
-import { csvRows, projectNames, sessionNotes, totalHours } from '../portal/csv.js'
+import { csvRows, totalHours, totalAmount, hasMoney } from '../portal/csv.js'
+import HoursTable from '../components/HoursTable.jsx'
 
 const PER_PAGE = 25
 
@@ -81,10 +82,7 @@ export default function ShareApp() {
   if (!summary) return <div className="share-page" />
 
   const pages = data ? Math.max(1, Math.ceil(data.total / PER_PAGE)) : 1
-  // A no-notes link omits `summary` from every entry rather than blanking it,
-  // so the column is dropped entirely instead of rendering as dead space.
-  const showsNotes = (data?.sessions || [])
-    .some(s => s.projects.some(p => 'summary' in p))
+  const breakdownMoney = (breakdown?.projects || []).some(p => p.amount_cents != null)
   const target = summary.company.weekly_hours_target
   const pct = target > 0 ? Math.min(100, (summary.week.minutes / 60 / target) * 100) : 0
 
@@ -118,7 +116,11 @@ export default function ShareApp() {
           <div className="card stat rise" style={{ '--i': 1 }}>
             <div className="label">This month</div>
             <div className="stat-value mono">{fmtHours(summary.month.minutes)}</div>
-            <div className="portal-dim">hours logged</div>
+            <div className="portal-dim">
+              {summary.month.amount_cents != null
+                ? `hours · ${fmtMoney(summary.month.amount_cents / 100)}`
+                : 'hours logged'}
+            </div>
           </div>
           <div className="card stat rise" style={{ '--i': 2 }}>
             <div className="label">Published sessions</div>
@@ -174,28 +176,14 @@ export default function ShareApp() {
                     <div className="label">
                       {data.total} session{data.total === 1 ? '' : 's'}
                     </div>
-                    <div className="portal-dim">{totalHours(data.sessions)} hrs on this page</div>
+                    <div className="portal-dim">
+                      {totalHours(data.sessions)} hrs on this page
+                      {hasMoney(data.sessions) && ` · ${fmtMoney(totalAmount(data.sessions))}`}
+                    </div>
                   </div>
                 </div>
 
-                <table className="portal-table">
-                  <thead>
-                    <tr>
-                      <th>Date</th><th>Hours</th><th>Projects</th>
-                      {showsNotes && <th>Notes</th>}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.sessions.map(s => (
-                      <tr key={s.id}>
-                        <td className="mono">{s.date}</td>
-                        <td className="mono">{fmtDuration(s.duration_minutes)}</td>
-                        <td>{projectNames(s)}</td>
-                        {showsNotes && <td className="portal-dim">{sessionNotes(s)}</td>}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <HoursTable sessions={data.sessions} />
 
                 {pages > 1 && (
                   <div className="portal-pager">
@@ -225,6 +213,9 @@ export default function ShareApp() {
                   <tr key={p.project_id ?? 'untagged'}>
                     <td>{p.name}</td>
                     <td className="mono">{fmtHours(p.minutes, 2)} hrs</td>
+                    {breakdownMoney && (
+                      <td className="mono">{fmtMoney((p.amount_cents || 0) / 100)}</td>
+                    )}
                   </tr>
                 ))}
                 <tr className="portal-total">
@@ -232,6 +223,11 @@ export default function ShareApp() {
                   <td className="mono">
                     {fmtHours(breakdown.projects.reduce((a, p) => a + p.minutes, 0), 2)} hrs
                   </td>
+                  {breakdownMoney && (
+                    <td className="mono">
+                      {fmtMoney(breakdown.projects.reduce((a, p) => a + (p.amount_cents || 0), 0) / 100)}
+                    </td>
+                  )}
                 </tr>
               </tbody>
             </table>

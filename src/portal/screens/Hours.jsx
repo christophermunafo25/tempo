@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { pget, ppost } from '../api.js'
 import { EmptyState } from '../../components/ui.jsx'
 import {
-  fmtDuration, fmtHours, downloadCSV, RANGE_PRESETS, presetRange, matchPreset,
+  fmtHours, fmtMoney, downloadCSV, RANGE_PRESETS, presetRange, matchPreset,
 } from '../../time.js'
-import { csvRows, projectNames, sessionNotes, totalHours } from '../csv.js'
+import { csvRows, totalHours, totalAmount, hasMoney } from '../csv.js'
+import HoursTable from '../../components/HoursTable.jsx'
 
 const PER_PAGE = 25
 
@@ -64,6 +65,7 @@ export default function Hours() {
   }
 
   const pages = data ? Math.max(1, Math.ceil(data.total / PER_PAGE)) : 1
+  const breakdownMoney = (breakdown?.projects || []).some(p => p.amount_cents != null)
 
   return (
     <div className="screen">
@@ -119,25 +121,12 @@ export default function Hours() {
                   </div>
                   <div className="portal-dim">
                     {totalHours(data.sessions)} hrs on this page
+                    {hasMoney(data.sessions) && ` · ${fmtMoney(totalAmount(data.sessions))}`}
                   </div>
                 </div>
               </div>
 
-              <table className="portal-table">
-                <thead>
-                  <tr><th>Date</th><th>Hours</th><th>Projects</th><th>Notes</th></tr>
-                </thead>
-                <tbody>
-                  {data.sessions.map(s => (
-                    <tr key={s.id}>
-                      <td className="mono">{s.date}</td>
-                      <td className="mono">{fmtDuration(s.duration_minutes)}</td>
-                      <td>{projectNames(s)}</td>
-                      <td className="portal-dim">{sessionNotes(s)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <HoursTable sessions={data.sessions} />
 
               {pages > 1 && (
                 <div className="portal-pager">
@@ -165,6 +154,9 @@ export default function Hours() {
                 <tr key={p.project_id ?? 'untagged'}>
                   <td>{p.name}</td>
                   <td className="mono">{fmtHours(p.minutes, 2)} hrs</td>
+                  {breakdownMoney && (
+                    <td className="mono">{fmtMoney((p.amount_cents || 0) / 100)}</td>
+                  )}
                 </tr>
               ))}
               {/* Rows round independently, so the total is computed from the
@@ -174,6 +166,11 @@ export default function Hours() {
                 <td className="mono">
                   {fmtHours(breakdown.projects.reduce((a, p) => a + p.minutes, 0), 2)} hrs
                 </td>
+                {breakdownMoney && (
+                  <td className="mono">
+                    {fmtMoney(breakdown.projects.reduce((a, p) => a + (p.amount_cents || 0), 0) / 100)}
+                  </td>
+                )}
               </tr>
             </tbody>
           </table>

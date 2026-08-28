@@ -134,8 +134,8 @@ by name. *Revoke* is soft: the row and its history stay, live cookies die on
 the contact's next request, and outstanding links are burned. *Restore* undoes
 it.
 
-The *Show rates* toggle is deliberately labelled "not wired up" — there is no
-rate column on clients yet, so the flag currently gates nothing.
+The *Show amounts* toggle controls whether that company's clients see money at
+all. See **Rates and amounts** below.
 
 **Publishing** — nothing is visible to a client until it is published, and
 every session logged before the portal existed defaults to hidden. Pick a
@@ -162,6 +162,60 @@ company at a glance in the charts and every client dot.
 
 An empty name is refused: it would render as a blank row in every list. Both
 changes are recorded in the audit log with the old value.
+
+## Rates and amounts
+
+Set an hourly rate per company under **Portal → Access → Edit**. With the
+company's **Show amounts** toggle on, clients see a rate and an amount beside
+every session, a total under the table, and money in the by-project breakdown.
+
+Two conditions are required, and when either fails the money fields are
+**omitted from the response entirely** rather than sent and hidden in the
+browser: the toggle is on, and a rate above zero is set. Turning the toggle off
+is a real off switch, not a display preference.
+
+### Rates are snapshotted when work is published
+
+`sessions.rate_applied` is stamped from the company's current rate at the
+moment a session is published, and only if that session has no rate yet.
+Changing `clients.hourly_rate` afterwards affects **only work published from
+then on**. Unpublishing and republishing does not re-stamp either.
+
+This matters because the amount is the number a client budgets against. A rate
+rise in March should not quietly reprice January's invoice on a page someone
+already screenshotted.
+
+A session with no rate — published before rates existed, or published while the
+rate was zero — reports a **blank amount, not zero**. Zero is a claim about
+what the work was worth; blank is the truth that no rate was ever applied.
+
+### Filling in or repricing past work
+
+Nothing is backfilled automatically. Where a company has published sessions
+with no rate, the Access card offers **Apply <rate> to those N** — an explicit
+action that fills in only the sessions that have never been priced, leaving
+everything already priced exactly as it was. A silent backfill of billing data
+is the kind of thing that goes unnoticed until it is wrong.
+
+Repricing everything published, including work a client has already seen, is
+`mode: 'all'` on the same endpoint. It is deliberately not a button.
+
+### How the arithmetic is kept honest
+
+Amounts are computed in integer cents and rounded **once, at the row**, so the
+screen, the CSV and an invoice line item agree. Totals are the sum of the
+already-rounded rows rather than a re-derivation, and never a SQL `SUM` of
+unrounded values — SQLite and Postgres round floats differently at the half,
+and over a quarter of sessions that difference shows.
+
+The by-project breakdown splits each session's already-rounded cents across its
+entries as whole cents, remainder to the first, the way a bill is split. Every
+project column therefore adds up to the total above it exactly, rather than
+drifting a few cents away from it.
+
+Nothing in any of this reads `expenses`. That table is personal overhead and
+has no path to a client; a test asserts a sentinel expense never appears in any
+client-reachable response.
 
 ## Share links: access without a login
 

@@ -147,14 +147,54 @@ export async function listSessions(opts) {
   const entries = await entriesFor(rows.map(r => r.id), opts.clientId)
   const zone = portalTz()
 
+  // notes:false drops the per-entry summary while keeping the project names.
+  // Share links can be forwarded, and the summaries are written for the
+  // owner's own recall rather than for an audience.
+  const keep = (list) => opts.notes === false
+    ? list.map(({ project_id, name }) => ({ project_id, name }))
+    : list
+
   return {
     total,
     sessions: rows.map(r => ({
       id: r.id,
       date: localDate(r.clock_in, zone),
       duration_minutes: r.duration_minutes,
-      projects: entries.get(r.id) || [],
+      projects: keep(entries.get(r.id) || []),
     })),
+  }
+}
+
+/* The overview figures. Lives here rather than in a route so the two front
+   doors — the logged-in portal and a share link — cannot drift apart on what
+   "this week" means or which sessions count toward it. */
+
+export async function summaryFor(clientId, { notes = true } = {}) {
+  const today = localToday()
+  const weekStart = localWeekStart(today)
+  const monthStart = localMonthStart(today)
+  const tomorrow = startOfLocalDay(addLocalDays(today, 1))
+
+  const company = await q1(null,
+    'SELECT id, name, color_accent, weekly_hours_target FROM clients WHERE id = ?', [clientId])
+
+  const [weekMinutes, monthMinutes, recent] = await Promise.all([
+    totalMinutes({ clientId, from: startOfLocalDay(weekStart), to: tomorrow }),
+    totalMinutes({ clientId, from: startOfLocalDay(monthStart), to: tomorrow }),
+    listSessions({ clientId, limit: 5, offset: 0, notes }),
+  ])
+
+  return {
+    company: {
+      name: company.name,
+      color_accent: company.color_accent,
+      weekly_hours_target: company.weekly_hours_target,
+    },
+    time_zone: portalTz(),
+    week: { start: weekStart, minutes: weekMinutes },
+    month: { start: monthStart, minutes: monthMinutes },
+    recent: recent.sessions,
+    total_sessions: recent.total,
   }
 }
 

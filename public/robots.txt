@@ -1,0 +1,5 @@
+# TEMPO holds one consultant's billing data and his clients' hours.
+# Nothing here is meant to be indexed, and share links are unguessable
+# bearer URLs that must never end up in a search result.
+User-agent: *
+Disallow: /

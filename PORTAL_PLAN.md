@@ -1,6 +1,11 @@
 # TEMPO client portal — implementation plan (v2)
 
-Status: **plan only, nothing implemented.** Awaiting approval before Phase 2.
+Status: **shipped.** All four steps landed, plus first-run setup, client
+archiving, and share links. **The README is the accurate description of current
+behaviour** — read it first. This document is kept for the design rationale:
+why the gate is shaped the way it is (§3), why there are no dependencies (§6),
+and what the open questions were (§10). Where the two disagree, the README
+wins.
 
 v2 revises v1 after the decision to give client contacts a limited write
 surface. The security architecture (§3) is unchanged from v1 and remains the

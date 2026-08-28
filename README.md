@@ -255,6 +255,35 @@ The owner's Portal screen lives at `/access`, not `/portal` — the client shell
 owns `/portal`, and two routes matching one path silently hid the owner screen
 once the client shell existed.
 
+### What a share link deliberately withholds
+
+Share links (below) read through exactly the same helpers as the logged-in
+portal, so everything in the list above applies to them unchanged: no
+unpublished sessions, nothing from another company, no `question_text`, no
+`status_events`, no clock times. On top of that a share link is:
+
+- **Read-only by construction.** The router refuses any method but GET, so
+  there are no writes to protect and CSRF has no surface at all.
+- **Without an author.** No comment threads, no project requests, no
+  subtasks — anything that needs to know who is speaking is absent, because a
+  bearer link cannot answer that.
+- **Optionally without notes.** Session summaries are written for the owner's
+  own recall, and a forwardable link is the wrong place to discover that. Each
+  link carries `shows_notes`, on by default, so a link meant for wider
+  circulation can show date, hours and project only.
+
+These omissions are load-bearing. Anything added to the share surface later
+should be checked against this list first.
+
+### robots.txt
+
+`public/robots.txt` disallows everything. Share links are unguessable bearer
+URLs and must never end up in a search result; the rest of the app is behind
+authentication and has no reason to be indexed either. Every share response
+also carries `X-Robots-Tag: noindex, nofollow`, `Referrer-Policy: no-referrer`
+and `Cache-Control: no-store`, so the protection does not depend on a crawler
+choosing to read robots.txt.
+
 ### TEMPO_TZ
 
 "The day a session belongs to" has to mean one thing. The owner's screens use

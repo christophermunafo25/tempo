@@ -192,6 +192,12 @@ export const LIMITS = {
   loginEmail: { limit: 5,  windowMs: 15 * 60000 },
   loginIp:    { limit: 20, windowMs: 15 * 60000 },
   write:      { limit: 60, windowMs: 10 * 60000 },
+  // A share view loads several endpoints per page, so the per-link ceiling is
+  // generous; it exists to stop a leaked link hammering the pooler, not to
+  // ration normal reading. The IP ceiling counts only failed lookups, which is
+  // where token guessing would show up.
+  share:      { limit: 240, windowMs: 10 * 60000 },
+  shareIp:    { limit: 40, windowMs: 15 * 60000 },
 }
 
 export async function rateCheck(bucket, { limit, windowMs }) {

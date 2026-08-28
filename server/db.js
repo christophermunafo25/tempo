@@ -139,6 +139,24 @@ CREATE TABLE IF NOT EXISTS portal_rate_events (
 CREATE INDEX IF NOT EXISTS portal_rate_events_bucket
   ON portal_rate_events (bucket, created_at);
 
+CREATE TABLE IF NOT EXISTS portal_share_links (
+  id ${idCol},
+  client_id INTEGER NOT NULL REFERENCES clients(id),
+  token_hash TEXT NOT NULL,
+  label TEXT NOT NULL DEFAULT '',
+  shows_notes INTEGER NOT NULL DEFAULT 1,
+  expires_at TEXT,
+  revoked_at TEXT,
+  last_viewed_at TEXT,
+  view_count INTEGER NOT NULL DEFAULT 0,
+  created_by INTEGER REFERENCES portal_users(id),
+  created_at TEXT NOT NULL DEFAULT ${nowDefault}
+);
+CREATE UNIQUE INDEX IF NOT EXISTS portal_share_links_token
+  ON portal_share_links (token_hash);
+CREATE INDEX IF NOT EXISTS portal_share_links_client
+  ON portal_share_links (client_id);
+
 CREATE TABLE IF NOT EXISTS project_comments (
   id ${idCol},
   project_id INTEGER NOT NULL REFERENCES projects(id),

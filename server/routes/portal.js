@@ -13,6 +13,7 @@ import {
   resolveRange, localToday, localWeekStart, localMonthStart, startOfLocalDay,
   addLocalDays, portalTz, listProjectsFor, projectDetail, unreadTotal,
   listComments, addComment, markRead, recordRevision, portalProject, validComment,
+  summaryFor,
 } from '../portal-query.js'
 
 const router = express.Router()
@@ -81,34 +82,11 @@ function pageParams(req) {
 
 router.get('/summary', h(async (req, res) => {
   const clientId = scopeOf(req)
-  const today = localToday()
-  const weekStart = localWeekStart(today)
-  const monthStart = localMonthStart(today)
-  const tomorrow = startOfLocalDay(addLocalDays(today, 1))
-
-  const company = await q1(null,
-    'SELECT id, name, color_accent, weekly_hours_target FROM clients WHERE id = ?', [clientId])
-
-  const [weekMinutes, monthMinutes, recent, unread] = await Promise.all([
-    totalMinutes({ clientId, from: startOfLocalDay(weekStart), to: tomorrow }),
-    totalMinutes({ clientId, from: startOfLocalDay(monthStart), to: tomorrow }),
-    listSessions({ clientId, limit: 5, offset: 0 }),
+  const [summary, unread] = await Promise.all([
+    summaryFor(clientId),
     unreadTotal(clientId, req.portalUser.id),
   ])
-
-  res.json({
-    company: {
-      name: company.name,
-      color_accent: company.color_accent,
-      weekly_hours_target: company.weekly_hours_target,
-    },
-    time_zone: portalTz(),
-    week: { start: weekStart, minutes: weekMinutes },
-    month: { start: monthStart, minutes: monthMinutes },
-    recent: recent.sessions,
-    total_sessions: recent.total,
-    unread_comments: unread,
-  })
+  res.json({ ...summary, unread_comments: unread })
 }))
 
 /* ── Hours ───────────────────────────────────────────────────────────── */

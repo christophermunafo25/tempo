@@ -7,6 +7,7 @@
 // bucket, with owner-only as the default arm:
 //
 //   /api/auth/*    public   (no session; rate-limited in the route module)
+//   /api/share/*   public   (bearer token in the path; resolves its own scope)
 //   /api/portal/*  client   (role 'client', scoped to its own client_id)
 //   anything else  owner
 //
@@ -44,6 +45,12 @@ export const gate = h(async (req, res, next) => {
   }
 
   if (seg === 'auth') return next()
+
+  // Share links carry their own credential in the path and resolve their own
+  // company scope, so they never reach resolveSession and req.portalUser is
+  // never set for them. The owner default arm below is untouched: /api/share
+  // is an explicit third prefix, not a loosening of it.
+  if (seg === 'share') return next()
 
   const session = await resolveSession(req, res)
   if (!session) throw httpError(401, 'not signed in')

@@ -194,11 +194,16 @@ wrong. The entry records the status the project is at now and writes no
 `status_events` row, so the Board and the project timeline stay the record of
 what actually happened when.
 
-**A manual session is unpublished, like any other.** It is not client-visible
-until you publish it on the Portal screen. This is a deliberate difference from
-clocking: for a company with the portal switched on, a *clocked* session
-publishes itself the moment you clock out, and a typed-in one does not. Work
-reconstructed from memory is worth a look before a client budgets against it.
+**Publishing follows the company, not how the hours were typed.** A company
+with the portal switched on sees a manual session as soon as you save it, and
+its rate is snapshotted then — exactly what clocking out already does for them.
+Everyone else stays unpublished until you publish the week on the Portal
+screen, which is also exactly what clocking out does for them.
+
+The rule is that whether a client can see an hour is their company's setting,
+never a question of how the hour got recorded. One path quietly withholding
+what the other sends is how hours go missing from a bill with nobody noticing,
+so both routes run the same code.
 
 ### What `entry_method` records
 

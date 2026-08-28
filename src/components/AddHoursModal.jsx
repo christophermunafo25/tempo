@@ -255,7 +255,11 @@ export default function AddHoursModal({ clients, defaultDate, defaultClientId, o
         <p style={{ textAlign: 'right', fontSize: 12, color: 'var(--text-4)', marginTop: 8,
                     display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
           <ClientDot color={client.color_accent} size={8} />
-          Saved unpublished — publish it on the Portal screen before {client.name} sees it.
+          {/* Publishing follows the company's portal setting, not how the hours
+              were typed — the same rule clocking out already follows. */}
+          {client.portal_enabled
+            ? `Goes straight to ${client.name}’s portal, the same as clocking out.`
+            : `Saved unpublished — publish it on the Portal screen before ${client.name} sees it.`}
         </p>
       )}
     </Modal>

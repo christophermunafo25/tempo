@@ -350,48 +350,85 @@ test('a manual session leaves the project status and its status_events alone', a
   assert.equal(entry.summary, 'back-filled work')
 })
 
-/* ── 3. Unpublished by creation, invisible until published ───────────── */
+/* ── 3. Publishing follows the company, not how the hours were typed ─────
+   A company with the portal on sees a clocked session the moment the timer
+   stops. Manual entry is on the same terms: whether a client can see an hour
+   is their company's setting, and one path withholding what the other sends is
+   how hours go missing from a bill without anyone noticing. */
 
-test('a manual session is created unpublished and reaches no client until published', async () => {
+test('a manual session publishes itself for a portal-enabled company, exactly like clocking out', async () => {
+  // A rate is set, so the snapshot behaviour can be checked too.
+  await call('PATCH', `/api/access/clients/${merc.id}`, { cookie: owner, body: { hourly_rate: 150 } })
+  assert.equal((await q1(null, 'SELECT portal_enabled FROM clients WHERE id = ?',
+    [merc.id])).portal_enabled, 1)
+
   const inn = daysAgo(9, 10)
   const created = (await call('POST', '/api/sessions', {
     cookie: owner,
     body: {
       client_id: merc.id,
       clock_in: inn.toISOString(),
-      clock_out: daysAgo(9, 13, 21).toISOString(),
+      clock_out: daysAgo(9, 13, 21).toISOString(),   // 201 minutes
       entries: [{ project_id: mercProject.id, summary: 'BACKFILLED-SENTINEL' }],
     },
   })).json
-  assert.equal(created.is_published, 0)
-  assert.equal(created.rate_applied, null)
   assert.equal(created.entry_method, 'manual')
+  assert.equal(created.is_published, 1, 'published on creation, like a clocked session')
+  assert.equal(created.rate_applied, 150, 'and the rate is snapshotted at the same moment')
 
-  // Mercenary has portal_enabled on, so a *clocked* session for this company
-  // would have auto-published at clock-out. A manual one deliberately does not.
-  assert.equal((await q1(null, 'SELECT portal_enabled FROM clients WHERE id = ?',
-    [merc.id])).portal_enabled, 1)
-
-  const surfaces = [
-    ['/api/portal/summary', dana.cookie],
+  // The session lists and the export quote the summary; the breakdown and the
+  // totals carry the same session as hours under a project name. Each is
+  // checked for what it actually reports rather than for one string.
+  for (const [url, cookie] of [
     ['/api/portal/sessions?per_page=100', dana.cookie],
-    ['/api/portal/breakdown', dana.cookie],
-    [`/api/share/${shareToken}/summary`, null],
     [`/api/share/${shareToken}/sessions?per_page=100`, null],
-    [`/api/share/${shareToken}/breakdown`, null],
     [`/api/share/${shareToken}/export`, null],
-  ]
-  for (const [url, cookie] of surfaces) {
+  ]) {
     const r = await call('GET', url, { cookie })
     assert.equal(r.status, 200, url)
-    assert.ok(!r.text.includes('BACKFILLED-SENTINEL'), `${url} showed an unpublished session`)
+    assert.ok(r.text.includes('BACKFILLED-SENTINEL'), `${url} hides a manual session`)
   }
 
-  // Published by hand, the same way a clocked session is, it appears.
-  await call('PATCH', `/api/access/sessions/${created.id}`,
+  for (const [url, cookie] of [
+    ['/api/portal/breakdown', dana.cookie],
+    [`/api/share/${shareToken}/breakdown`, null],
+  ]) {
+    const r = await call('GET', url, { cookie })
+    const row = r.json.projects.find(p => p.name === 'Q3 Rebrand')
+    assert.ok(row && row.minutes >= 201, `${url} left its hours out of the breakdown`)
+  }
+
+  const summary = await call('GET', '/api/portal/summary', { cookie: dana.cookie })
+  assert.ok(summary.json.month.minutes >= 201, 'and out of the month a client is billed for')
+})
+
+test('a manual session for a company without the portal waits to be published', async () => {
+  assert.equal((await q1(null, 'SELECT portal_enabled FROM clients WHERE id = ?',
+    [northwind.id])).portal_enabled, 0, 'Northwind has never been switched on')
+
+  const created = (await call('POST', '/api/sessions', {
+    cookie: owner,
+    body: {
+      client_id: northwind.id,
+      clock_in: daysAgo(10, 9).toISOString(),
+      clock_out: daysAgo(10, 11).toISOString(),
+      allow_overlap: true,
+    },
+  })).json
+  assert.equal(created.is_published, 0, 'nothing is published for them without a decision')
+  assert.equal(created.rate_applied, null, 'and no rate is stamped on unpublished work')
+
+  // Which is exactly what clocking out does for the same company.
+  const clocked = (await call('POST', '/api/clock-in',
+    { cookie: owner, body: { client_id: northwind.id } })).json
+  await call('POST', `/api/sessions/${clocked.id}/clock-out`, { cookie: owner, body: { entries: [] } })
+  assert.equal((await q1(null, 'SELECT is_published FROM sessions WHERE id = ?',
+    [clocked.id])).is_published, 0, 'the two paths agree')
+
+  // Publishing by hand still works and is still the way in.
+  const published = await call('PATCH', `/api/access/sessions/${created.id}`,
     { cookie: owner, body: { is_published: true } })
-  const after = await call('GET', '/api/portal/sessions?per_page=100', { cookie: dana.cookie })
-  assert.ok(after.text.includes('BACKFILLED-SENTINEL'), 'visible once published')
+  assert.equal(published.json.is_published, 1)
 })
 
 /* ── 8. entry_method never reaches a client ──────────────────────────── */

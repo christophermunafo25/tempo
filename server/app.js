@@ -53,6 +53,25 @@ function sessionTimes({ clock_in, clock_out, requireOut = false }) {
   return { inn, out, duration: out ? Math.round(((out - inn) / 60000) * 100) / 100 : null }
 }
 
+/* Companies with the portal switched on see a session as soon as it exists —
+   there is no review step for them, by choice. Everyone else stays unpublished
+   until published by hand. The rate is snapshotted at the same moment for the
+   same reason it is on an explicit publish: this is when the number becomes
+   something a client can budget against.
+
+   Shared by clocking out and by manual entry rather than written twice. How a
+   session was recorded is the owner's business; whether a client can see it is
+   the company's setting, and one path quietly withholding what the other sends
+   is how a client's hours go missing without anyone noticing. */
+async function publishForPortalClient(conn, clientId, sessionId) {
+  const client = await q1(conn,
+    'SELECT portal_enabled, hourly_rate FROM clients WHERE id = ?', [clientId])
+  if (!client?.portal_enabled) return
+  await q(conn, `UPDATE sessions SET is_published = 1,
+    rate_applied = CASE WHEN rate_applied IS NULL AND ? > 0 THEN ? ELSE rate_applied END
+    WHERE id = ?`, [client.hourly_rate || 0, client.hourly_rate || 0, sessionId])
+}
+
 /* Two sessions covering the same wall-clock window are double-billed hours,
    and manual entry is the only path that can create that. Checked against
    every client rather than the one being entered, because the constraint is
@@ -370,17 +389,19 @@ app.post('/api/sessions', h(async (req, res) => {
       // status_at_entry is NOT NULL and needs a value, so it records where the
       // project stands now. No applyStatus() and so no status_events row:
       // back-filling Tuesday's work on Friday should not drag a board column
-      // backwards to match a three-day-old memory. is_published is left at its
-      // schema default of 0 — including for a company whose clocked work
-      // auto-publishes at clock-out, because a session rebuilt from memory is
-      // worth a look before a client budgets against it.
+      // backwards to match a three-day-old memory.
       await q(tx, `INSERT INTO session_entries (session_id, project_id, summary, status_at_entry)
         VALUES (?,?,?,?)`, [created.id, project.id, (entry.summary || '').trim(), project.status])
     }
+
+    // On exactly the same terms as clocking out. Whether a client sees an hour
+    // is their company's portal setting, not a question of how the hour got
+    // typed — a back-filled Tuesday is as billable as a clocked one.
+    await publishForPortalClient(tx, created.client_id, created.id)
     return created
   })
 
-  res.json(session)
+  res.json(await q1(null, 'SELECT * FROM sessions WHERE id = ?', [session.id]))
 }))
 
 app.post('/api/sessions/:id/clock-out', h(async (req, res) => {
@@ -415,18 +436,7 @@ app.post('/api/sessions/:id/clock-out', h(async (req, res) => {
         VALUES (?,?,?,?)`, [session.id, project.id, (entry.summary || '').trim(), entry.status])
     }
 
-    // Companies with the portal switched on see a session as soon as it is
-    // clocked out — there is no review step for them by choice. Everyone else
-    // stays unpublished until published by hand. The rate is snapshotted here
-    // for the same reason it is on an explicit publish: this is the moment the
-    // number becomes something the client can budget against.
-    const client = await q1(tx,
-      'SELECT portal_enabled, hourly_rate FROM clients WHERE id = ?', [session.client_id])
-    if (client?.portal_enabled) {
-      await q(tx, `UPDATE sessions SET is_published = 1,
-        rate_applied = CASE WHEN rate_applied IS NULL AND ? > 0 THEN ? ELSE rate_applied END
-        WHERE id = ?`, [client.hourly_rate || 0, client.hourly_rate || 0, session.id])
-    }
+    await publishForPortalClient(tx, session.client_id, session.id)
   })
   res.json(await q1(null, 'SELECT * FROM sessions WHERE id = ?', [session.id]))
 }))

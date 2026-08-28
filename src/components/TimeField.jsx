@@ -22,11 +22,6 @@ export default function TimeField({ value, onChange, onValidity, onEnter, showDa
     }
   }
 
-  const shiftDay = (delta) => {
-    if (invalid) return
-    onChange(addDays(date, delta))
-  }
-
   return (
     <span className="timefield">
       <input
@@ -40,13 +35,22 @@ export default function TimeField({ value, onChange, onValidity, onEnter, showDa
         onBlur={() => { if (!invalid) setText(fmtTime(date)) }}
         onKeyDown={e => { if (e.key === 'Enter' && !invalid) onEnter?.() }}
       />
-      {showDate && (
-        <span className="tf-date">
-          <button type="button" className="st-ctl" aria-label="Previous day" onClick={() => shiftDay(-1)}>‹</button>
-          <span className="mono">{fmtDate(date)}</span>
-          <button type="button" className="st-ctl" aria-label="Next day" onClick={() => shiftDay(1)}>›</button>
-        </span>
-      )}
+      {showDate && <DateStepper value={date} onChange={onChange} disabled={invalid} />}
+    </span>
+  )
+}
+
+/* The day half of the field above, on its own. Duration-mode manual entry
+   picks a calendar day and a number of hours, with no time of day to type. */
+export function DateStepper({ value, onChange, disabled }) {
+  const date = new Date(value)
+  return (
+    <span className="tf-date">
+      <button type="button" className="st-ctl" aria-label="Previous day" disabled={disabled}
+        onClick={() => onChange(addDays(date, -1))}>‹</button>
+      <span className="mono">{fmtDate(date)}</span>
+      <button type="button" className="st-ctl" aria-label="Next day" disabled={disabled}
+        onClick={() => onChange(addDays(date, 1))}>›</button>
     </span>
   )
 }

@@ -97,7 +97,10 @@ test('setup', async () => {
   await q(null, "UPDATE projects SET status = 'questions', question_text = ? WHERE id = ?",
     [SECRET_QUESTION, mercProject.id])
 
-  await session(merc.id, mercProject.id, 120, true, 'published work')
+  const manual = await session(merc.id, mercProject.id, 120, true, 'published work')
+  // Typed in rather than clocked, and published, so the scans below have a row
+  // whose entry_method could actually leak.
+  await q(null, "UPDATE sessions SET entry_method = 'manual' WHERE id = ?", [manual.id])
   await session(merc.id, mercProject.id, 480, false, 'SECRET-UNPUBLISHED-WORK')
   await session(north.id, northProject.id, 300, true, 'northwind confidential')
 
@@ -258,6 +261,13 @@ test('no share response contains clock times, emails or internal status fields',
     assert.ok(!r.text.includes('@'), `${p} contained an address`)
     assert.ok(!r.text.includes('status_at_entry'), `${p} status_at_entry`)
     assert.ok(!r.text.includes('status_events'), `${p} status_events`)
+    // How a session was recorded is the owner's own bookkeeping. A client is
+    // owed the hours, not the story of how they were remembered.
+    assert.ok(!r.text.includes('entry_method'), `${p} entry_method`)
+    assert.ok(!r.text.includes('manual'), `${p} leaked an entry_method value`)
+    // Likewise whether a session was withdrawn. project_comments reports its
+    // own soft delete as `deleted`, so only the column name is scanned here.
+    assert.ok(!r.text.includes('deleted_at'), `${p} deleted_at`)
   }
   const sessions = await call('GET', `/api/share/${token}/sessions?per_page=100`)
   for (const s of sessions.json.sessions) {

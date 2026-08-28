@@ -98,7 +98,10 @@ test('setup', async () => {
     [SECRET_QUESTION, mercProject2.id])
 
   // Mercenary: two published sessions, one unpublished.
-  await session(mercenary.id, 2, 120, true, [[mercProject.id, 'logo round one']])
+  const manual = await session(mercenary.id, 2, 120, true, [[mercProject.id, 'logo round one']])
+  // Typed in rather than clocked, and published, so the scan below has a row
+  // whose entry_method could actually leak.
+  await q(null, "UPDATE sessions SET entry_method = 'manual' WHERE id = ?", [manual.id])
   await session(mercenary.id, 1, 60, true, [[mercProject.id, 'logo round two'], [mercProject2.id, 'booth layout']])
   await session(mercenary.id, 1, 480, false, [[mercProject.id, 'SECRET-UNPUBLISHED-WORK']])
   // Northwind: published, but belongs to someone else.
@@ -249,11 +252,19 @@ test('a project in Questions reports as In Progress', async () => {
   assert.ok(!r.text.includes('questions'))
 })
 
-test('status_events and status_at_entry never appear', async () => {
-  for (const url of ['/api/portal/sessions?per_page=100', '/api/portal/projects', '/api/portal/summary']) {
+test('status_events, status_at_entry and entry_method never appear', async () => {
+  for (const url of ['/api/portal/sessions?per_page=100', '/api/portal/projects',
+                     '/api/portal/summary', '/api/portal/breakdown']) {
     const r = await call('GET', url, { cookie: dana.cookie })
     assert.ok(!r.text.includes('status_at_entry'), `${url}`)
     assert.ok(!r.text.includes('status_events'), `${url}`)
+    // Whether a session was clocked or reconstructed from memory is the
+    // owner's bookkeeping. A client is owed the hours, not the provenance.
+    assert.ok(!r.text.includes('entry_method'), `${url} entry_method`)
+    assert.ok(!r.text.includes('manual'), `${url} leaked an entry_method value`)
+    // Likewise whether a session was withdrawn. project_comments reports its
+    // own soft delete as `deleted`, so only the column name is scanned here.
+    assert.ok(!r.text.includes('deleted_at'), `${url} deleted_at`)
   }
 })
 

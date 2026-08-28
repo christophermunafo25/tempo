@@ -163,6 +163,90 @@ company at a glance in the charts and every client dot.
 An empty name is refused: it would render as a blank row in every list. Both
 changes are recorded in the audit log with the old value.
 
+## Adding hours you forgot to clock
+
+The clock only records what you remember to start. **Timesheets → Add hours**
+fills in a session for a day that was never clocked — in the filterbar for any
+client, or on a client's own row to start with that company already chosen.
+These hours reach an invoice like every other kind, so the screen is built to
+let you check what you added rather than trust it: the week's sessions list
+under the totals, expandable, with an **Added** tag on the ones you typed in.
+
+The modal opens on a day inside the week the stepper is showing, not on today.
+Back-filling last week is the point of the feature, and defaulting to today
+would mean re-picking the date every single time.
+
+Two ways to enter it, because there are two situations:
+
+- **Start and end** is the default and writes exactly what you type. The time
+  fields take "9am", "09:00" or "2:30 PM", and the ‹ › arrows move the day.
+- **Duration** is for the days the clock times are genuinely gone: give it a day
+  and a number of hours. The schema derives everything from `clock_in` and
+  `clock_out`, so a duration has to become real times somewhere, and that
+  somewhere is visible rather than hidden — the block is anchored to **9:00 AM**
+  and the modal shows the times it will write before you save them.
+
+Projects and a summary are optional, the same picker the clock-out panel uses.
+What manual entry deliberately does **not** do is move a project's status. If
+you are writing up Tuesday on Friday, that project has probably moved on, and
+dragging its board column backwards to match a three-day-old memory would be
+wrong. The entry records the status the project is at now and writes no
+`status_events` row, so the Board and the project timeline stay the record of
+what actually happened when.
+
+**A manual session is unpublished, like any other.** It is not client-visible
+until you publish it on the Portal screen. This is a deliberate difference from
+clocking: for a company with the portal switched on, a *clocked* session
+publishes itself the moment you clock out, and a typed-in one does not. Work
+reconstructed from memory is worth a look before a client budgets against it.
+
+### What `entry_method` records
+
+`sessions.entry_method` is `'manual'` on a session you typed in and NULL on one
+the timer wrote — NULL being every row that predates the column, which is why
+it needed no backfill. Reconciling an invoice six months from now, the question
+"did I clock this or rebuild it from memory?" has an answer.
+
+It is yours alone. `portal-query.js` names every column it selects and never
+selects this one, and a test scans every client-reachable response for it, so a
+future `SELECT s.*` cannot start leaking it quietly.
+
+### Overlap warnings
+
+Two sessions covering the same wall-clock window are double-billed hours, and
+manual entry is the only way to create that. Saving one that overlaps time
+already logged warns instead of refusing, and names the session it clashed
+with; **Save anyway** goes ahead. It has to be a warning rather than a rule,
+because re-entering a session you logged wrong looks exactly like
+double-billing one and only you can tell which it is.
+
+The check runs against **every client**, not just the one being entered — you
+cannot be in two places, so whose logo is on the other row is beside the point.
+A timer still running counts as occupied time up to this moment. Sessions that
+merely touch at an endpoint (9–10 against 10–11) do not overlap.
+
+### Deleting one
+
+`PATCH` can move a session's times but never its client, so a session entered
+against the wrong company used to be permanent. **Delete** on a session row is
+soft: it stamps `deleted_at`, and the row, its entries and its published state
+all survive, because these are the hours an invoice was built from. What
+changes is that every read which counts hours stops seeing it — the timesheet,
+the dashboard, the board, the archive, the publish list, and both client-facing
+front doors. **Undo** appears next to the list and puts it back.
+
+A deleted session also stops being publishable, stops blocking the next
+clock-in if it was still running, and stops counting as an overlap.
+
+### A note on dates and time zones
+
+Owner screens render in the browser's zone and the portal attributes a session
+to a date using `TEMPO_TZ` (below), so a late-evening session can land on one
+date on your Timesheets and the next one in a client's view. **This is already
+true of clocked sessions** and manual entry works exactly the same way — it
+builds a real instant from a wall-clock time the same way the clock does. When
+your browser is in `America/Chicago` the two agree and nothing diverges.
+
 ## Rates and amounts
 
 Set an hourly rate per company under **Portal → Access → Edit**. With the
@@ -505,12 +589,19 @@ locally and wrong on Vercel.
 npm test           # node --test, no test dependencies
 ```
 
-Covers the security boundary only: that unauthenticated callers get 401 on
-every `/api` route, that a client session gets 404 and never data on owner
-routes, that revoked cookies die immediately, that expired invite tokens can't
-be redeemed, and that the owner's own endpoints are unchanged. The suite
-writes to a throwaway directory via `TEMPO_DATA_DIR` and never touches
-`data/tempo.db`.
+Mostly the security boundary: that unauthenticated callers get 401 on every
+`/api` route, that a client session gets 404 and never data on owner routes,
+that revoked cookies die immediately, that expired invite tokens can't be
+redeemed, and that the owner's own endpoints are unchanged. The route
+enumeration reads Express's own router stack, so a route added later is covered
+by both without anyone remembering to add it.
+
+Alongside that, `manual.test.js` covers what manual entry is allowed to write:
+that it refuses an open, backwards or future session; that it publishes nothing
+by itself; that its entries and the session land in one transaction or not at
+all; that it moves no project's status; and that a deleted session leaves every
+surface while its row survives. The suite writes to a throwaway directory via
+`TEMPO_DATA_DIR` and never touches `data/tempo.db`.
 
 ## Run locally
 
@@ -554,7 +645,10 @@ WAL-pending writes are included).
   full drawer: summary history, subtasks, links, status timeline.
 - **Timesheets** — contracted vs. actual per client per week, inline-editable
   targets, pace indicator, totals, and an invoice-ready CSV per week (one row
-  per session entry, durations prorated across a session's entries).
+  per session entry, durations prorated across a session's entries). *Add
+  hours* logs a session for a day you forgot to clock, by start and end times
+  or by duration; the week's sessions expand underneath, tagged clocked or
+  added, and can be edited or soft-deleted from there.
 
 ## Stack
 

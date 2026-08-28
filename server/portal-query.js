@@ -99,10 +99,17 @@ export async function moneyPolicy(clientId) {
 
 /* ── Session scope ───────────────────────────────────────────────────────
    client_id and is_published are not optional and are not parameters — they
-   are the definition of what a client may see. */
+   are the definition of what a client may see.
+
+   deleted_at joined them rather than being filtered by each caller: this
+   clause is the single chokepoint every client-facing read passes through, so
+   a session the owner has withdrawn disappears from the table, the totals, the
+   breakdown, the exports and the pulse in one move, and a read added here
+   later inherits it. */
 
 function scopeClause({ clientId, from, to, projectId }) {
-  let sql = 's.client_id = ? AND s.is_published = 1 AND s.clock_out IS NOT NULL'
+  let sql = `s.client_id = ? AND s.is_published = 1 AND s.clock_out IS NOT NULL
+    AND s.deleted_at IS NULL`
   const args = [clientId]
   if (from) { sql += ' AND s.clock_in >= ?'; args.push(from.toISOString()) }
   if (to) { sql += ' AND s.clock_in < ?'; args.push(to.toISOString()) }

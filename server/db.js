@@ -221,6 +221,22 @@ const ADD_COLUMNS = [
   // published with no rate set" — which reports as a blank amount, never a
   // zero. Zero is a claim; blank is the truth.
   ['sessions', 'rate_applied',       'REAL'],
+  // Provenance. NULL means the session was clocked, which is every row that
+  // predates this column and every row the timer still writes; 'manual' means
+  // it was typed in after the fact from memory. Nullable with no default for
+  // the same reason as rate_applied above, and for the extra one that a
+  // backfill would have to invent a claim about rows nobody can now verify.
+  // This column is owner-only: portal-query.js names every column it selects
+  // and never selects this one, and the sentinel scan holds that in place.
+  ['sessions', 'entry_method',       'TEXT'],
+  // Soft delete, the same shape as project_comments.deleted_at. Hours here are
+  // billing data and history is never overwritten, so a session entered against
+  // the wrong client is hidden rather than removed — PATCH can move a session's
+  // times but nothing can move its client_id, which is what made a wrong row
+  // permanent before this. Every read that counts hours filters it out; no
+  // existing row has a value, so every one of those reads returns exactly what
+  // it returned before.
+  ['sessions', 'deleted_at',         'TEXT'],
 ]
 
 // Arbitrary fixed key. Parallel Vercel cold starts all run init(); racing

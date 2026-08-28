@@ -18,6 +18,59 @@ export { ready }
 const nowISO = () => new Date().toISOString()
 const STATUSES = ['in_queue', 'on_deck', 'in_progress', 'questions', 'sent_for_review', 'complete']
 
+// TimeField rounds typed input to the minute, so a time entered at 14:30:45 as
+// "14:31" is a few seconds ahead of the clock and plainly means now. Past a
+// minute it is a typo or the wrong year.
+const FUTURE_GRACE_MS = 60000
+
+/* The clock values for the two routes that write them: POST /api/sessions
+   creates a completed session, PATCH /api/sessions/:id corrects one. They used
+   to parse and round independently, and the future check sat in an `else` arm
+   that a session with a clock_out never reached — so a completed session could
+   be patched to next week and saved. One helper, one set of rules, applied
+   whether a session is being created or corrected. */
+function sessionTimes({ clock_in, clock_out, requireOut = false }) {
+  const inn = new Date(clock_in)
+  if (isNaN(inn.getTime())) throw httpError(400, 'clock_in is not a valid time')
+
+  let out = null
+  if (clock_out) {
+    out = new Date(clock_out)
+    if (isNaN(out.getTime())) throw httpError(400, 'clock_out is not a valid time')
+  } else if (requireOut) {
+    // A manual session is always a completed one. Creating it open would put
+    // it on the Clock screen as the running timer and block the next clock-in.
+    throw httpError(400, 'clock_out is required — a manual session is a completed one')
+  }
+
+  const limit = Date.now() + FUTURE_GRACE_MS
+  if (inn.getTime() > limit) throw httpError(400, 'clock_in can’t be in the future')
+  if (out) {
+    if (out <= inn) throw httpError(400, 'clock_out must be after clock_in')
+    if (out.getTime() > limit) throw httpError(400, 'clock_out can’t be in the future')
+  }
+
+  return { inn, out, duration: out ? Math.round(((out - inn) / 60000) * 100) / 100 : null }
+}
+
+/* Two sessions covering the same wall-clock window are double-billed hours,
+   and manual entry is the only path that can create that. Checked against
+   every client rather than the one being entered, because the constraint is
+   that one person cannot be in two places — whose logo is on the other row is
+   beside the point. An open session counts as running up to now. Endpoints
+   that merely touch (9–10 against 10–11) do not overlap. */
+async function overlappingSessions(inn, out) {
+  return q(null, `
+    SELECT s.id, s.clock_in, s.clock_out, s.duration_minutes,
+           c.name AS client_name, c.color_accent
+    FROM sessions s
+    JOIN clients c ON c.id = s.client_id
+    WHERE s.clock_in < ? AND COALESCE(s.clock_out, ?) > ?
+      AND s.deleted_at IS NULL
+    ORDER BY s.clock_in`,
+    [out.toISOString(), nowISO(), inn.toISOString()])
+}
+
 async function applyStatus(conn, project, status, questionText, source) {
   if (!STATUSES.includes(status)) throw httpError(400, `invalid status: ${status}`)
   if (status === 'questions' && !(questionText || '').trim()) {
@@ -146,7 +199,8 @@ app.get('/api/projects/:id/detail', h(async (req, res) => {
   const entries = await q(null, `
     SELECT e.*, s.clock_in, s.clock_out, s.duration_minutes FROM session_entries e
     JOIN sessions s ON s.id = e.session_id
-    WHERE e.project_id = ? ORDER BY s.clock_in DESC`, [project.id])
+    WHERE e.project_id = ? AND s.deleted_at IS NULL
+    ORDER BY s.clock_in DESC`, [project.id])
   const statusEvents = await q(null,
     'SELECT * FROM status_events WHERE project_id = ? ORDER BY created_at DESC, id DESC', [project.id])
   res.json({ ...(await withExtras(null, project)), entries, status_events: statusEvents })
@@ -214,14 +268,16 @@ app.get('/api/active-session', h(async (req, res) => {
   const s = await q1(null, `
     SELECT s.*, c.name AS client_name, c.color_accent FROM sessions s
     JOIN clients c ON c.id = s.client_id
-    WHERE s.clock_out IS NULL ORDER BY s.clock_in DESC LIMIT 1`)
+    WHERE s.clock_out IS NULL AND s.deleted_at IS NULL
+    ORDER BY s.clock_in DESC LIMIT 1`)
   res.json(s || null)
 }))
 
 app.post('/api/clock-in', h(async (req, res) => {
   const { client_id } = req.body
   if (!client_id) throw httpError(400, 'client_id is required')
-  const active = await q1(null, 'SELECT id FROM sessions WHERE clock_out IS NULL')
+  const active = await q1(null,
+    'SELECT id FROM sessions WHERE clock_out IS NULL AND deleted_at IS NULL')
   if (active) throw httpError(409, 'a session is already running')
   const session = await q1(null,
     'INSERT INTO sessions (client_id, clock_in) VALUES (?,?) RETURNING *', [client_id, nowISO()])
@@ -236,7 +292,7 @@ app.get('/api/prefill', h(async (req, res) => {
   const last = await q1(null, `
     SELECT s.id FROM sessions s
     JOIN clients c ON c.id = s.client_id AND c.is_active = 1
-    WHERE s.client_id = ? AND s.clock_out IS NOT NULL
+    WHERE s.client_id = ? AND s.clock_out IS NOT NULL AND s.deleted_at IS NULL
       AND EXISTS (SELECT 1 FROM session_entries e WHERE e.session_id = s.id)
     ORDER BY s.clock_in DESC LIMIT 1`, [client_id])
   if (!last) return res.json([])
@@ -251,31 +307,85 @@ app.get('/api/prefill', h(async (req, res) => {
   })))
 }))
 
-// Adjust a session's times after the fact (forgot to clock in/out).
+// Adjust a session's times after the fact (forgot to clock in/out). An absent
+// field keeps the stored value, so a caller can move one end of a session
+// without restating the other.
 app.patch('/api/sessions/:id', h(async (req, res) => {
-  const session = await q1(null, 'SELECT * FROM sessions WHERE id = ?', [req.params.id])
+  const session = await q1(null,
+    'SELECT * FROM sessions WHERE id = ? AND deleted_at IS NULL', [req.params.id])
   if (!session) throw httpError(404, 'session not found')
-  const inn = req.body.clock_in ? new Date(req.body.clock_in) : new Date(session.clock_in)
-  if (isNaN(inn.getTime())) throw httpError(400, 'clock_in is not a valid time')
-  let out = session.clock_out ? new Date(session.clock_out) : null
-  if (req.body.clock_out) {
-    out = new Date(req.body.clock_out)
-    if (isNaN(out.getTime())) throw httpError(400, 'clock_out is not a valid time')
-  }
-  if (out) {
-    if (out <= inn) throw httpError(400, 'clock_out must be after clock_in')
-  } else if (inn > new Date()) {
-    throw httpError(400, 'clock_in can’t be in the future')
-  }
-  const duration = out ? Math.round(((out - inn) / 60000) * 100) / 100 : null
+  const { inn, out, duration } = sessionTimes({
+    clock_in: req.body.clock_in || session.clock_in,
+    clock_out: req.body.clock_out || session.clock_out,
+  })
   const updated = await q1(null,
     'UPDATE sessions SET clock_in = ?, clock_out = ?, duration_minutes = ? WHERE id = ? RETURNING *',
     [inn.toISOString(), out ? out.toISOString() : null, duration, session.id])
   res.json(updated)
 }))
 
+/* Create an already-completed session for a day that was never clocked.
+   Deliberately not an extension of /api/clock-in: that route stamps nowISO()
+   and refuses while a session is open, and neither behaviour is right for
+   back-filling. Sitting under /api and outside the auth, share and portal
+   prefixes is what makes it owner-only — see gate.js. */
+app.post('/api/sessions', h(async (req, res) => {
+  const { client_id, entries = [], allow_overlap } = req.body || {}
+  if (!client_id) throw httpError(400, 'client_id is required')
+  if (!Array.isArray(entries)) throw httpError(400, 'entries must be an array')
+  const client = await q1(null, 'SELECT id FROM clients WHERE id = ?', [client_id])
+  if (!client) throw httpError(404, 'client not found')
+
+  const { inn, out, duration } = sessionTimes({
+    clock_in: req.body?.clock_in,
+    clock_out: req.body?.clock_out,
+    requireOut: true,
+  })
+
+  // A warning rather than a refusal, and it names the conflict: re-entering a
+  // session that was logged wrong looks identical to double-billing one, and
+  // only the person who was there can tell the two apart. Confirming re-posts
+  // with allow_overlap.
+  if (!allow_overlap) {
+    const conflicts = await overlappingSessions(inn, out)
+    if (conflicts.length) {
+      return res.status(409).json({ error: 'this overlaps time already logged', conflicts })
+    }
+  }
+
+  const session = await withTx(async (tx) => {
+    const created = await q1(tx, `
+      INSERT INTO sessions (client_id, clock_in, clock_out, duration_minutes, entry_method)
+      VALUES (?,?,?,?,?) RETURNING *`,
+      [client.id, inn.toISOString(), out.toISOString(), duration, 'manual'])
+
+    for (const entry of entries) {
+      const project = await q1(tx, 'SELECT * FROM projects WHERE id = ?', [entry.project_id])
+      if (!project) throw httpError(400, `project ${entry.project_id} not found`)
+      // portal-query.js keeps a redundant client check on entries for this
+      // reason: a mis-parented entry must never widen what a company can see.
+      if (project.client_id !== created.client_id) {
+        throw httpError(400, `project ${entry.project_id} belongs to another client`)
+      }
+      // status_at_entry is NOT NULL and needs a value, so it records where the
+      // project stands now. No applyStatus() and so no status_events row:
+      // back-filling Tuesday's work on Friday should not drag a board column
+      // backwards to match a three-day-old memory. is_published is left at its
+      // schema default of 0 — including for a company whose clocked work
+      // auto-publishes at clock-out, because a session rebuilt from memory is
+      // worth a look before a client budgets against it.
+      await q(tx, `INSERT INTO session_entries (session_id, project_id, summary, status_at_entry)
+        VALUES (?,?,?,?)`, [created.id, project.id, (entry.summary || '').trim(), project.status])
+    }
+    return created
+  })
+
+  res.json(session)
+}))
+
 app.post('/api/sessions/:id/clock-out', h(async (req, res) => {
-  const session = await q1(null, 'SELECT * FROM sessions WHERE id = ?', [req.params.id])
+  const session = await q1(null,
+    'SELECT * FROM sessions WHERE id = ? AND deleted_at IS NULL', [req.params.id])
   if (!session) throw httpError(404, 'session not found')
   if (session.clock_out) throw httpError(409, 'session is already clocked out')
   const { clock_in, clock_out, entries = [] } = req.body
@@ -321,13 +431,39 @@ app.post('/api/sessions/:id/clock-out', h(async (req, res) => {
   res.json(await q1(null, 'SELECT * FROM sessions WHERE id = ?', [session.id]))
 }))
 
+/* Soft delete. A session entered against the wrong client is the one mistake
+   manual entry makes easy to create and nothing else could fix: PATCH can move
+   the times but not the company. Deleting hides the row from every read that
+   counts hours — the timesheet, the dashboard, the board, the archive, the
+   publish list and both client-facing front doors — while the row itself, its
+   entries and its published state all survive, because these are the hours an
+   invoice was built from and history here is not overwritten. */
+app.delete('/api/sessions/:id', h(async (req, res) => {
+  const session = await q1(null,
+    'SELECT * FROM sessions WHERE id = ? AND deleted_at IS NULL', [req.params.id])
+  if (!session) throw httpError(404, 'session not found')
+  const updated = await q1(null,
+    'UPDATE sessions SET deleted_at = ? WHERE id = ? RETURNING *', [nowISO(), session.id])
+  res.json(updated)
+}))
+
+// The undo. Deleting is one click on a row of billable hours, so it needs one.
+app.post('/api/sessions/:id/restore', h(async (req, res) => {
+  const session = await q1(null,
+    'SELECT * FROM sessions WHERE id = ? AND deleted_at IS NOT NULL', [req.params.id])
+  if (!session) throw httpError(404, 'session not found')
+  const updated = await q1(null,
+    'UPDATE sessions SET deleted_at = NULL WHERE id = ? RETURNING *', [session.id])
+  res.json(updated)
+}))
+
 // Completed sessions with their entries, optionally bounded and filtered.
 app.get('/api/sessions', h(async (req, res) => {
   const { from, to, client_id } = req.query
   let sql = `
     SELECT s.*, c.name AS client_name, c.color_accent FROM sessions s
     JOIN clients c ON c.id = s.client_id
-    WHERE s.clock_out IS NOT NULL AND c.is_active = 1`
+    WHERE s.clock_out IS NOT NULL AND s.deleted_at IS NULL AND c.is_active = 1`
   const args = []
   if (from) { sql += ' AND s.clock_in >= ?'; args.push(from) }
   if (to) { sql += ' AND s.clock_in < ?'; args.push(to) }
@@ -361,7 +497,7 @@ app.get('/api/board', h(async (req, res) => {
     const last = await q1(null, `
       SELECT e.summary FROM session_entries e
       JOIN sessions s ON s.id = e.session_id
-      WHERE e.project_id = ? AND e.summary != ''
+      WHERE e.project_id = ? AND e.summary != '' AND s.deleted_at IS NULL
       ORDER BY s.clock_in DESC LIMIT 1`, [p.id])
     const counts = await q1(null,
       'SELECT COUNT(*) AS total, SUM(is_done) AS done FROM subtasks WHERE project_id = ?', [p.id])
@@ -394,6 +530,7 @@ app.get('/api/archive', h(async (req, res) => {
     JOIN sessions s ON s.id = e.session_id
     JOIN (SELECT session_id, COUNT(*) AS n FROM session_entries GROUP BY session_id) cnt
       ON cnt.session_id = e.session_id
+    WHERE s.deleted_at IS NULL
     GROUP BY e.project_id`)
   const shareMap = Object.fromEntries(shares.map(r => [r.project_id, r.minutes]))
   res.json(await Promise.all(projects.map(async (p) => ({
@@ -402,7 +539,8 @@ app.get('/api/archive', h(async (req, res) => {
     trail: await q(null, `
       SELECT e.summary, e.status_at_entry, s.clock_in FROM session_entries e
       JOIN sessions s ON s.id = e.session_id
-      WHERE e.project_id = ? ORDER BY s.clock_in DESC`, [p.id]),
+      WHERE e.project_id = ? AND s.deleted_at IS NULL
+      ORDER BY s.clock_in DESC`, [p.id]),
   }))))
 }))
 

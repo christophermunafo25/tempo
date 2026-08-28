@@ -1,22 +1,59 @@
-import { useEffect, useMemo, useState } from 'react'
-import { get, patch } from '../api.js'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { del, get, patch, post } from '../api.js'
 import {
-  weekRange, fmtHours, fmtRange, localDayKey, fmtTime, downloadCSV,
+  addDays, weekRange, fmtHours, fmtRange, fmtDate, fmtDuration,
+  localDayKey, fmtTime, downloadCSV,
 } from '../time.js'
 import { WeekStepper, ClientDot, EmptyState } from '../components/ui.jsx'
+import EditSessionModal from '../components/EditSessionModal.jsx'
+import AddHoursModal from '../components/AddHoursModal.jsx'
+
+// The day a manual entry starts on. Back-filling last week is the whole point,
+// so it opens inside the week being looked at rather than on today: today, when
+// that falls in this week, and otherwise the Friday of it — the day work is
+// most often remembered as belonging to.
+function defaultDateFor(range) {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  if (today >= range.from && today < range.to) return today
+  return addDays(range.from, 4)
+}
 
 export default function Timesheets() {
   const [clients, setClients] = useState([])
   const [sessions, setSessions] = useState([])
   const [offset, setOffset] = useState(0)
+  const [adding, setAdding] = useState(null)      // { clientId } while the modal is open
+  const [editing, setEditing] = useState(null)
+  const [showSessions, setShowSessions] = useState(false)
+  const [undoable, setUndoable] = useState(null)
 
   const range = useMemo(() => weekRange(offset), [offset])
 
-  useEffect(() => { get('/clients').then(setClients) }, [])
-  useEffect(() => {
+  const refresh = useCallback(() => {
     get(`/sessions?from=${range.from.toISOString()}&to=${range.to.toISOString()}`)
       .then(setSessions)
   }, [range])
+
+  useEffect(() => { get('/clients').then(setClients) }, [])
+  useEffect(() => { refresh() }, [refresh])
+
+  const openAdd = (clientId = null) => {
+    setUndoable(null)
+    setAdding({ clientId })
+  }
+
+  const removeSession = async (session) => {
+    await del(`/sessions/${session.id}`)
+    setUndoable(session)
+    refresh()
+  }
+
+  const undoRemove = async () => {
+    await post(`/sessions/${undoable.id}/restore`)
+    setUndoable(null)
+    refresh()
+  }
 
   const loggedByClient = useMemo(() => {
     const m = new Map()
@@ -67,6 +104,10 @@ export default function Timesheets() {
       <div className="filterbar rise" style={{ '--i': 1 }}>
         <WeekStepper offset={offset} onChange={setOffset} range={range} />
         <span className="spacer" />
+        <button className="btn btn-outline btn-sm" onClick={() => openAdd()}
+          disabled={clients.length === 0}>
+          Add hours
+        </button>
         <button className="btn btn-outline btn-sm" onClick={exportCSV} disabled={sessions.length === 0}>
           Download CSV
         </button>
@@ -81,30 +122,132 @@ export default function Timesheets() {
           <div className="ts-table">
             <div className="ts-row head">
               <span>Client</span><span>Target</span><span>Logged</span><span>Remaining</span>
-              <span>Progress</span><span>Pace</span>
+              <span>Progress</span><span>Pace</span><span />
             </div>
             {clients.map(c => (
               <TimesheetRow key={c.id} client={c}
                 loggedMin={loggedByClient.get(c.id) || 0}
                 daysElapsed={daysElapsed}
                 isCurrentWeek={offset === 0}
-                onTarget={saveTarget} />
+                onTarget={saveTarget}
+                onAdd={() => openAdd(c.id)} />
             ))}
             <div className="ts-row total">
               <span className="who">All clients</span>
               <span className="num">{totalTarget.toFixed(1)}</span>
               <span className="num">{fmtHours(totalLogged)}</span>
               <span className="num">{Math.max(0, totalTarget - totalLogged / 60).toFixed(1)}</span>
-              <span /><span />
+              <span /><span /><span />
             </div>
           </div>
         </div>
+      )}
+
+      <WeekSessions
+        sessions={sessions}
+        open={showSessions}
+        onToggle={() => setShowSessions(o => !o)}
+        onEdit={setEditing}
+        onDelete={removeSession}
+        undoable={undoable}
+        onUndo={undoRemove}
+        onDismissUndo={() => setUndoable(null)}
+      />
+
+      {adding && (
+        <AddHoursModal
+          clients={clients}
+          defaultClientId={adding.clientId}
+          defaultDate={defaultDateFor(range)}
+          onSaved={() => { setAdding(null); refresh() }}
+          onClose={() => setAdding(null)}
+        />
+      )}
+
+      {editing && (
+        <EditSessionModal
+          session={editing}
+          onSaved={() => { setEditing(null); refresh() }}
+          onClose={() => setEditing(null)}
+        />
       )}
     </div>
   )
 }
 
-function TimesheetRow({ client, loggedMin, daysElapsed, isCurrentWeek, onTarget }) {
+/* The week's sessions, under the totals they add up to. The screen showed one
+   aggregate row per client and no way to see what was inside it, which is fine
+   until you can add rows by hand and need to check what you added. */
+function WeekSessions({ sessions, open, onToggle, onEdit, onDelete, undoable, onUndo, onDismissUndo }) {
+  const [confirming, setConfirming] = useState(null)
+
+  const ordered = useMemo(
+    () => [...sessions].sort((a, b) => b.clock_in.localeCompare(a.clock_in)),
+    [sessions])
+
+  return (
+    <div className="card rise" style={{ '--i': 3, marginTop: 'var(--space-6)' }}>
+      <div className="filterbar" style={{ marginBottom: open ? 'var(--space-4)' : 0 }}>
+        <button className="btn btn-ghost btn-sm" onClick={onToggle} aria-expanded={open}>
+          {open ? 'Hide' : 'Show'} sessions ({sessions.length})
+        </button>
+        <span className="spacer" />
+        {undoable && (
+          <span className="label" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            Session deleted
+            <button className="btn btn-ghost btn-sm" onClick={onUndo}>Undo</button>
+            <button className="btn btn-ghost btn-sm" onClick={onDismissUndo}>Dismiss</button>
+          </span>
+        )}
+      </div>
+
+      {open && (ordered.length === 0 ? (
+        <EmptyState>Nothing logged this week. “Add hours” fills in a day you forgot to clock.</EmptyState>
+      ) : (
+        <div>
+          {ordered.map(s => (
+            <div className="session-row" key={s.id}>
+              <span className="mono" style={{ width: 108, flexShrink: 0 }}>{fmtDate(s.clock_in)}</span>
+              <span className="who" style={{ flex: '0 1 160px' }}>
+                <ClientDot color={s.color_accent} />
+                {s.client_name}
+              </span>
+              <span className="mono" style={{ width: 150, flexShrink: 0 }}>
+                {fmtTime(s.clock_in)} – {fmtTime(s.clock_out)}
+              </span>
+              <span className="mono" style={{ width: 64, flexShrink: 0 }}>
+                {fmtDuration(s.duration_minutes)}
+              </span>
+              <span style={{ flex: 1, minWidth: 0, color: 'var(--text-2)', fontSize: 13,
+                             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {s.entries.length === 0
+                  ? <span style={{ color: 'var(--text-4)' }}>untagged</span>
+                  : s.entries.map(e => e.project_name).join(', ')}
+              </span>
+              {/* NULL entry_method means the timer wrote it. */}
+              {s.entry_method === 'manual' && <span className="pill neutral">Added</span>}
+              {confirming === s.id ? (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 13 }}>Delete?</span>
+                  <button className="btn btn-danger btn-sm"
+                    onClick={() => { setConfirming(null); onDelete(s) }}>Delete</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setConfirming(null)}>Keep</button>
+                </span>
+              ) : (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => onEdit(s)}>Edit</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setConfirming(s.id)}>Delete</button>
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function TimesheetRow({ client, loggedMin, daysElapsed, isCurrentWeek, onTarget, onAdd }) {
   const [draft, setDraft] = useState(String(client.weekly_hours_target))
   useEffect(() => { setDraft(String(client.weekly_hours_target)) }, [client.weekly_hours_target])
 
@@ -154,6 +297,10 @@ function TimesheetRow({ client, loggedMin, daysElapsed, isCurrentWeek, onTarget 
         {over > 0 && <span className="ts-over">+{over.toFixed(1)} hrs over</span>}
       </span>
       <span>{pace ? <span className={`pace ${pace.cls}`}>{pace.text}</span> : <span className="pace">no target set</span>}</span>
+      <span style={{ textAlign: 'right' }}>
+        <button className="btn btn-ghost btn-sm" onClick={onAdd}
+          aria-label={`Add hours for ${client.name}`}>Add hours</button>
+      </span>
     </div>
   )
 }

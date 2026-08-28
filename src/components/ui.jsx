@@ -65,7 +65,7 @@ export function Dropdown({ value, placeholder, options, onSelect, footer, disabl
   )
 }
 
-export function Modal({ title, children, onClose }) {
+export function Modal({ title, children, onClose, wide }) {
   useEffect(() => {
     const esc = (e) => { if (e.key === 'Escape') onClose() }
     document.addEventListener('keydown', esc)
@@ -73,7 +73,7 @@ export function Modal({ title, children, onClose }) {
   }, [onClose])
   return (
     <div className="scrim" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label={title}>
+      <div className={`modal${wide ? ' modal-wide' : ''}`} role="dialog" aria-modal="true" aria-label={title}>
         <h3>{title}</h3>
         {children}
       </div>

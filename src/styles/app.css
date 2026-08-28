@@ -387,6 +387,7 @@ a { color: inherit; text-decoration: none; }
   margin-bottom: var(--space-6);
 }
 .modal-actions { display: flex; justify-content: flex-end; gap: var(--space-3); margin-top: var(--space-8); }
+.modal-wide { width: min(560px, calc(100vw - 48px)); max-height: calc(100vh - 96px); overflow-y: auto; }
 
 .swatches { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 .swatch {
@@ -793,7 +794,8 @@ a { color: inherit; text-decoration: none; }
 .ts-table { display: flex; flex-direction: column; }
 .ts-row {
   display: grid;
-  grid-template-columns: minmax(140px, 1.2fr) 90px 90px 90px minmax(180px, 2fr) minmax(120px, 1fr);
+  grid-template-columns:
+    minmax(140px, 1.2fr) 90px 90px 90px minmax(160px, 2fr) minmax(110px, 1fr) 96px;
   gap: var(--space-4);
   align-items: center;
   padding: var(--space-4) 0;
@@ -888,7 +890,10 @@ a { color: inherit; text-decoration: none; }
   .sidebar { width: 176px; }
   .stats-row { grid-template-columns: repeat(2, 1fr); }
   .board { grid-template-columns: repeat(2, 1fr); }
-  .ts-row { grid-template-columns: minmax(120px, 1fr) 70px 70px 70px minmax(140px, 1.6fr) minmax(100px, 1fr); }
+  .ts-row {
+    grid-template-columns:
+      minmax(110px, 1fr) 64px 64px 64px minmax(110px, 1.4fr) minmax(90px, 1fr) 78px;
+  }
 }
 
 /* ── Auth ─────────────────────────────────────────────────────────────── */

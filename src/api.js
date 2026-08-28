@@ -18,7 +18,13 @@ export async function api(path, opts = {}) {
       window.dispatchEvent(new Event('tempo-unauthenticated'))
     }
     const data = await res.json().catch(() => ({}))
-    throw new Error(data.error || `Request failed (${res.status})`)
+    // The status and the body ride along: a 409 from POST /sessions carries the
+    // sessions it conflicts with, and a warning that can't name the conflict is
+    // not much of a warning. Callers that only read .message are unaffected.
+    const err = new Error(data.error || `Request failed (${res.status})`)
+    err.status = res.status
+    err.data = data
+    throw err
   }
   return res.json()
 }

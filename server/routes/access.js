@@ -74,7 +74,8 @@ router.get('/clients', h(async (req, res) => {
       share_links: await shareLinksFor(client.id),
       unpriced_published: Number((await q1(null, `
         SELECT COUNT(*) AS n FROM sessions
-        WHERE client_id = ? AND is_published = 1 AND rate_applied IS NULL`,
+        WHERE client_id = ? AND is_published = 1 AND rate_applied IS NULL
+          AND deleted_at IS NULL`,
         [client.id]))?.n || 0),
     })
   }
@@ -299,7 +300,8 @@ router.post('/clients/:id/archive', h(async (req, res) => {
   // Archiving mid-session would make the running clock vanish from the Clock
   // screen with no way to close it out.
   const running = await q1(null,
-    'SELECT id FROM sessions WHERE client_id = ? AND clock_out IS NULL', [client.id])
+    `SELECT id FROM sessions WHERE client_id = ? AND clock_out IS NULL
+       AND deleted_at IS NULL`, [client.id])
   if (running) throw httpError(409, 'clock out of this client before archiving them')
 
   const updated = await q1(null,
@@ -328,13 +330,16 @@ router.get('/clients/:id/impact', h(async (req, res) => {
   if (!client) throw httpError(404, 'client not found')
   const one = async (sql) => Number((await q1(null, sql, [client.id]))?.n || 0)
   res.json({
-    sessions: await one('SELECT COUNT(*) AS n FROM sessions WHERE client_id = ?'),
+    sessions: await one(
+      'SELECT COUNT(*) AS n FROM sessions WHERE client_id = ? AND deleted_at IS NULL'),
     minutes: Number((await q1(null,
-      'SELECT COALESCE(SUM(duration_minutes),0) AS n FROM sessions WHERE client_id = ?',
+      `SELECT COALESCE(SUM(duration_minutes),0) AS n FROM sessions
+       WHERE client_id = ? AND deleted_at IS NULL`,
       [client.id]))?.n || 0),
     projects: await one('SELECT COUNT(*) AS n FROM projects WHERE client_id = ?'),
     contacts: await one("SELECT COUNT(*) AS n FROM portal_users WHERE client_id = ? AND role = 'client'"),
-    running: await one('SELECT COUNT(*) AS n FROM sessions WHERE client_id = ? AND clock_out IS NULL'),
+    running: await one(`SELECT COUNT(*) AS n FROM sessions
+      WHERE client_id = ? AND clock_out IS NULL AND deleted_at IS NULL`),
   })
 }))
 
@@ -428,7 +433,8 @@ router.post('/publish', h(async (req, res) => {
     throw httpError(400, 'from and to must be valid times')
   }
 
-  const where = `client_id = ? AND clock_out IS NOT NULL AND clock_in >= ? AND clock_in < ?`
+  const where = `client_id = ? AND clock_out IS NOT NULL AND deleted_at IS NULL
+    AND clock_in >= ? AND clock_in < ?`
   const args = [client.id, from, to]
   const { n } = await q1(null, `SELECT COUNT(*) AS n FROM sessions WHERE ${where}`, args)
   await q(null, `UPDATE sessions SET is_published = ? WHERE ${where}`, [publish, ...args])
@@ -451,7 +457,8 @@ router.post('/publish', h(async (req, res) => {
 }))
 
 router.patch('/sessions/:id', h(async (req, res) => {
-  const session = await q1(null, 'SELECT * FROM sessions WHERE id = ?', [req.params.id])
+  const session = await q1(null,
+    'SELECT * FROM sessions WHERE id = ? AND deleted_at IS NULL', [req.params.id])
   if (!session) throw httpError(404, 'session not found')
   const publish = req.body?.is_published ? 1 : 0
   if (publish && session.rate_applied == null) {
@@ -482,7 +489,8 @@ router.get('/clients/:id/rate-impact', h(async (req, res) => {
   if (!client) throw httpError(404, 'client not found')
   const one = async (extra) => Number((await q1(null,
     `SELECT COUNT(*) AS n FROM sessions
-     WHERE client_id = ? AND is_published = 1 AND clock_out IS NOT NULL ${extra}`,
+     WHERE client_id = ? AND is_published = 1 AND clock_out IS NOT NULL
+       AND deleted_at IS NULL ${extra}`,
     [client.id]))?.n || 0)
 
   res.json({
@@ -504,8 +512,8 @@ router.post('/clients/:id/apply-rate', h(async (req, res) => {
   // published before rates existed. 'all' reprices everything published, which
   // changes numbers a client may already have seen, so it is never the default.
   const all = req.body?.mode === 'all'
-  const where = `client_id = ? AND is_published = 1 AND clock_out IS NOT NULL` +
-    (all ? '' : ' AND rate_applied IS NULL')
+  const where = `client_id = ? AND is_published = 1 AND clock_out IS NOT NULL
+    AND deleted_at IS NULL` + (all ? '' : ' AND rate_applied IS NULL')
 
   const { n } = await q1(null, `SELECT COUNT(*) AS n FROM sessions WHERE ${where}`, [client.id])
   await q(null, `UPDATE sessions SET rate_applied = ? WHERE ${where}`, [client.hourly_rate, client.id])

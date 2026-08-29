@@ -850,3 +850,109 @@ test('deleted_at never appears in a client-reachable response', async () => {
     assert.ok(!r.text.includes('deleted_at'), `${url} leaked deleted_at`)
   }
 })
+
+/* ── Catching up work logged before publishing became automatic ───────────
+   Sessions publish themselves as they are logged for a portal-enabled company,
+   so the only thing that can be invisible is a backlog: work from before the
+   portal was switched on. Releasing it one week at a time is the tedium this
+   avoids. */
+
+test('the backlog count is what a company cannot see, and one call clears it', async () => {
+  const co = (await call('POST', '/api/clients', {
+    cookie: owner, body: { name: 'Backlog Co', color_accent: '#D9A13B' },
+  })).json
+  const project = (await call('POST', '/api/projects', {
+    cookie: owner, body: { client_id: co.id, name: 'Old Work' },
+  })).json
+
+  // Three sessions logged while the portal was off — nothing publishes itself.
+  for (const weeksBack of [1, 5, 30]) {
+    const start = daysAgo(weeksBack * 7, 9)
+    const r = await call('POST', '/api/sessions', {
+      cookie: owner,
+      body: {
+        client_id: co.id,
+        clock_in: start.toISOString(),
+        clock_out: daysAgo(weeksBack * 7, 12).toISOString(),
+        entries: [{ project_id: project.id, summary: `BACKLOG-${weeksBack}` }],
+        allow_overlap: true,
+      },
+    })
+    assert.equal(r.json.is_published, 0, 'the portal is off, so nothing goes out')
+  }
+
+  const countOf = async (id) => {
+    const cs = (await call('GET', '/api/access/clients', { cookie: owner })).json
+    return cs.find(c => c.id === id).unpublished
+  }
+  assert.equal(await countOf(co.id), 3)
+
+  // Switching the portal on does not retroactively release anything — which is
+  // exactly the state that made the share link look broken.
+  await call('PATCH', `/api/access/clients/${co.id}`,
+    { cookie: owner, body: { portal_enabled: true, hourly_rate: 200 } })
+  assert.equal(await countOf(co.id), 3, 'the backlog survives switching the portal on')
+
+  const token = mintToken()
+  await q(null, 'INSERT INTO portal_share_links (client_id, token_hash, label) VALUES (?,?,?)',
+    [co.id, hashToken(token), 'Catch-up'])
+  const before = await call('GET', `/api/share/${token}/sessions?per_page=100`)
+  assert.equal(before.json.total, 0, 'a live link showing nothing at all')
+
+  // One call over the whole history, which is what the button sends.
+  const swept = await call('POST', '/api/access/publish', {
+    cookie: owner,
+    body: {
+      client_id: co.id, publish: true,
+      from: new Date(0).toISOString(),
+      to: new Date(Date.now() + 86400000).toISOString(),
+    },
+  })
+  assert.equal(swept.json.affected, 3)
+  assert.equal(await countOf(co.id), 0, 'nothing left that the company cannot see')
+
+  const after = await call('GET', `/api/share/${token}/sessions?per_page=100`)
+  assert.equal(after.json.total, 3, 'all three reach the client')
+  for (const n of [1, 5, 30]) {
+    assert.ok(after.text.includes(`BACKLOG-${n}`), `the session from ${n} week(s) back`)
+  }
+  // The rate is snapshotted on the way out, as on any other publish.
+  const rows = await q(null,
+    'SELECT rate_applied FROM sessions WHERE client_id = ? AND deleted_at IS NULL', [co.id])
+  assert.ok(rows.every(r => r.rate_applied === 200), 'each one priced as it published')
+
+  // And from here on it stays at zero on its own.
+  const fresh = await call('POST', '/api/sessions', {
+    cookie: owner,
+    body: {
+      client_id: co.id,
+      clock_in: daysAgo(1, 9).toISOString(),
+      clock_out: daysAgo(1, 10).toISOString(),
+      allow_overlap: true,
+    },
+  })
+  assert.equal(fresh.json.is_published, 1, 'no second trip to the publish screen')
+  assert.equal(await countOf(co.id), 0)
+})
+
+test('a deleted session is not part of the backlog', async () => {
+  const co = (await call('POST', '/api/clients', {
+    cookie: owner, body: { name: 'Deleted Backlog Co', color_accent: '#C77D9E' },
+  })).json
+  const s = (await call('POST', '/api/sessions', {
+    cookie: owner,
+    body: {
+      client_id: co.id,
+      clock_in: daysAgo(3, 9).toISOString(),
+      clock_out: daysAgo(3, 10).toISOString(),
+      allow_overlap: true,
+    },
+  })).json
+  const countOf = async () => {
+    const cs = (await call('GET', '/api/access/clients', { cookie: owner })).json
+    return cs.find(c => c.id === co.id).unpublished
+  }
+  assert.equal(await countOf(), 1)
+  await call('DELETE', `/api/sessions/${s.id}`, { cookie: owner })
+  assert.equal(await countOf(), 0, 'a withdrawn session is not work waiting to go out')
+})

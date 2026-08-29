@@ -48,7 +48,7 @@ export default function Portal() {
       </div>
 
       {tab === 'access' && <AccessTab clients={clients} onChange={refreshClients} />}
-      {tab === 'publishing' && <PublishingTab clients={clients} />}
+      {tab === 'publishing' && <PublishingTab clients={clients} onChange={refreshClients} />}
       {tab === 'requests' && <RequestsTab requests={requests} onChange={refreshRequests} />}
       {tab === 'threads' && <ThreadsTab threads={threads} onChange={refreshThreads} />}
     </div>
@@ -650,11 +650,12 @@ function LinkBox({ link, onDismiss }) {
    Nothing a client can see moves without this screen. Sessions default to
    unpublished, including every session logged before the portal existed. */
 
-function PublishingTab({ clients }) {
+function PublishingTab({ clients, onChange }) {
   const [clientId, setClientId] = useState(null)
   const [offset, setOffset] = useState(0)
   const [sessions, setSessions] = useState([])
   const [busy, setBusy] = useState(false)
+  const [caughtUp, setCaughtUp] = useState(0)
 
   const range = useMemo(() => weekRange(offset), [offset])
   const enabled = clients.filter(c => c.portal_enabled)
@@ -689,6 +690,28 @@ function PublishingTab({ clients }) {
   const one = async (session) => {
     await patch(`/access/sessions/${session.id}`, { is_published: !session.is_published })
     refresh()
+    onChange?.()
+  }
+
+  // Everything completed, in one go. Sessions publish themselves as they are
+  // logged now, so this exists to clear what was logged before that — work
+  // predating the portal being switched on, which would otherwise mean
+  // stepping through a year of weeks to release a year of hours.
+  const catchUp = async () => {
+    setBusy(true)
+    try {
+      const r = await post('/access/publish', {
+        client_id: clientId,
+        from: new Date(0).toISOString(),
+        to: new Date(Date.now() + 86400000).toISOString(),
+        publish: true,
+      })
+      setCaughtUp(r.affected)
+      await refresh()
+      onChange?.()
+    } finally {
+      setBusy(false)
+    }
   }
 
   if (!enabled.length) {
@@ -697,6 +720,8 @@ function PublishingTab({ clients }) {
 
   const publishedCount = sessions.filter(s => s.is_published).length
   const total = sessions.reduce((a, s) => a + s.duration_minutes, 0)
+  const selected = enabled.find(c => c.id === clientId)
+  const backlog = selected?.unpublished || 0
 
   return (
     <>
@@ -711,6 +736,43 @@ function PublishingTab({ clients }) {
         <span className="spacer" />
         <WeekStepper offset={offset} onChange={setOffset} range={range} />
       </div>
+
+      {backlog > 0 && (
+        <div className="card rise" style={{ marginBottom: 'var(--space-6)' }}>
+          <div className="portal-confirm">
+            <div className="label">
+              {backlog} completed session{backlog === 1 ? '' : 's'} this company can’t see
+            </div>
+            <p className="portal-dim">
+              Hours publish themselves as they are logged now, so this is work from
+              before that — logged before the portal was switched on for
+              {' '}{selected?.name || 'this company'}, or before publishing became
+              automatic. Releasing it here beats stepping through the weeks one at a
+              time. Unpublishing still works afterwards, per week or per session.
+              {Number(selected?.hourly_rate) > 0 && (
+                <> Each one is stamped with the current rate of{' '}
+                  {fmtMoney(selected.hourly_rate)} an hour as it publishes, and any
+                  session that already carries a rate keeps the one it has.</>
+              )}
+            </p>
+            <div className="portal-publish-actions">
+              <button className="btn btn-sm" disabled={busy} onClick={catchUp}>
+                Publish all {backlog} of them
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {caughtUp > 0 && backlog === 0 && (
+        <div className="card rise" style={{ marginBottom: 'var(--space-6)' }}>
+          <p className="portal-dim">
+            {caughtUp} session{caughtUp === 1 ? '' : 's'} published. Everything
+            completed for {selected?.name || 'this company'} is now visible to them,
+            and anything logged from here on publishes itself.
+          </p>
+        </div>
+      )}
 
       <div className="card rise">
         <div className="portal-publish-head">

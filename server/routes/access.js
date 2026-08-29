@@ -77,6 +77,15 @@ router.get('/clients', h(async (req, res) => {
         WHERE client_id = ? AND is_published = 1 AND rate_applied IS NULL
           AND deleted_at IS NULL`,
         [client.id]))?.n || 0),
+      // Completed work this company cannot see. Sessions now publish
+      // themselves as they are logged for a portal-enabled company, so this
+      // counts a backlog rather than a queue: work that predates the portal
+      // being switched on, or the auto-publish behaviour itself.
+      unpublished: Number((await q1(null, `
+        SELECT COUNT(*) AS n FROM sessions
+        WHERE client_id = ? AND is_published = 0 AND clock_out IS NOT NULL
+          AND deleted_at IS NULL`,
+        [client.id]))?.n || 0),
     })
   }
   res.json(out)

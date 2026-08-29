@@ -194,6 +194,15 @@ wrong. The entry records the status the project is at now and writes no
 `status_events` row, so the Board and the project timeline stay the record of
 what actually happened when.
 
+**Catching up work from before.** Switching the portal on for a company does
+not retroactively release anything, and neither does the auto-publish above —
+both apply from the moment they exist, so a company can end up with a live
+share link showing nothing at all. **Portal → Publishing** says how many
+completed sessions that company still cannot see and offers to release them in
+one go, rather than making you step through a year of weeks to publish a year
+of hours. Each is stamped with the current rate as it publishes, anything
+already priced keeps its own rate, and unpublishing still works afterwards.
+
 **Publishing follows the company, not how the hours were typed.** A company
 with the portal switched on sees a manual session as soon as you save it, and
 its rate is snapshotted then — exactly what clocking out already does for them.
